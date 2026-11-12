@@ -28,7 +28,7 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
   const DIA = ['LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO', 'DOMINGO'];
   const fill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
   const C = { bg: 'FF0D1A0F', r1: 'FF16301A', r2: 'FF1D3D21', verde: 'FF7EE08A', azul: 'FF8FC3FF', rojo: 'FFFF6B57', morado: 'FFC08CFF', gris: 'FFB5BDB6', blanco: 'FFFFFFFF', na: 'FF9B7BFF' };
-  const props = D => D.properties.filter(p => p.active !== false).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+  const props = D => D.properties.filter(p => p.active !== false && p.kind !== 'cajon').sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
   const activas = D => D.reservations.filter(r => r.status !== 'cancelada');
   const nombre = (D, k) => (D.cleaners.find(c => c.key === k) || {}).name || k || '';
   const corto = c => String(c || '').replace(/^Q-/, '');

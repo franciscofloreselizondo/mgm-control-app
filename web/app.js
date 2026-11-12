@@ -122,7 +122,9 @@ const S = {
     buy: { estado: 'pend', resp: '', store: '', sort: 'date' }
   }
 };
-const props = () => S.t.properties.filter(p => p.active !== false).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+const esCajon = p => p.kind === 'cajon';
+const cajonesSueltos = () => S.t.properties.filter(p => p.active !== false && esCajon(p)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+const props = () => S.t.properties.filter(p => p.active !== false && !esCajon(p)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
 const prop = c => S.t.properties.find(p => p.code === c);
 const isQ = c => (prop(c) || {}).building === 'Qalina';
 const cleaners = () => S.t.cleaners.filter(c => c.active !== false).sort((a, b) => a.name.localeCompare(b.name));
@@ -310,7 +312,7 @@ const depaOpts = (blank = '— elegir —') => [['', blank], ...props().map(p =>
 // ---------- RESERVAS ----------
 function solapa(v, selfId) { return activas().find(r => r.id !== selfId && r.property_code === v.property_code && r.checkin < v.checkout && v.checkin < r.checkout); }
 function prestadores(v, selfId) {
-  return props().filter(p => p.building === 'Qalina' && p.has_parking && p.lends_parking && p.code !== v.property_code).map(p => {
+  return [...props(), ...cajonesSueltos()].filter(p => p.building === 'Qalina' && p.has_parking && p.lends_parking && p.code !== v.property_code).map(p => {
     const busy = v.checkin && v.checkout && activas().some(x => x.id !== selfId && x.checkin < v.checkout && v.checkin < x.checkout && ((x.property_code === p.code && x.has_car === true) || x.parking_from === p.code));
     return [p.code, `${p.code} · sótano ${p.parking_level ?? '?'}${busy ? ' · OCUPADO' : ''}`];
   });
@@ -559,7 +561,7 @@ VIEWS.cajones = () => {
   const qal = props().filter(p => p.building === 'Qalina');
   const nec = qal.filter(p => by[p.code] && by[p.code].has_car === true && !p.has_parking).map(p => by[p.code]);
   const usados = new Set(occ.map(r => r.parking_from).filter(Boolean));
-  const libres = qal.filter(p => p.has_parking && p.lends_parking && !(by[p.code] && by[p.code].has_car === true) && !usados.has(p.code)).map(p => p.code);
+  const libres = [...qal, ...cajonesSueltos()].filter(p => p.has_parking && p.lends_parking && !(by[p.code] && by[p.code].has_car === true) && !usados.has(p.code)).map(p => p.code);
   const faltan = nec.filter(r => !r.parking_from).length;
   h += `<div class="kpis"><div class="kpi"><div class="v">${nec.length}</div><div class="l">Necesitan prestado</div></div><div class="kpi"><div class="v">${libres.length}</div><div class="l">Cajones libres</div></div><div class="kpi ${faltan ? 'alert' : ''}"><div class="v">${faltan}</div><div class="l">Por asignar</div></div></div>`;
   if (faltan > libres.length) h += `<div class="err">Faltan ${faltan - libres.length} cajón(es) esta noche.</div>`;
@@ -758,7 +760,7 @@ VIEWS.perfil = () => { const u = S.me, sup = u.role === 'superadmin';
 VIEWS.supuestos = () => {
   let h = `<h2>Nómina y cajones</h2><div class="card"><div class="row"><span class="sp">Bono por limpieza en domingo</span><input type="number" style="width:90px" data-set="bono_domingo" value="${Number(setting('bono_domingo', 50))}"></div><div class="row" style="margin-top:8px"><span class="sp">Renta mensual por cajón prestado</span><input type="number" style="width:90px" data-set="renta_cajon" value="${Number(setting('renta_cajon', 500))}"></div></div>`;
   h += '<h2>Cajones Qalina</h2><div class="card scroll"><table><tr><th>Depa</th><th>Tiene</th><th>Sótano</th><th>Presta</th></tr>';
-  for (const p of props().filter(p => p.building === 'Qalina')) h += `<tr><td class="dp">${esc(p.code)}</td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|has_parking" ${p.has_parking ? 'checked' : ''}></td><td><input type="number" style="width:60px" data-pp="${esc(p.code)}|parking_level" value="${p.parking_level ?? ''}"></td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|lends_parking" ${p.lends_parking ? 'checked' : ''}></td></tr>`;
+  for (const p of [...props(), ...cajonesSueltos()].filter(p => p.building === 'Qalina')) h += `<tr><td class="dp">${esc(p.code)}</td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|has_parking" ${p.has_parking ? 'checked' : ''}></td><td><input type="number" style="width:60px" data-pp="${esc(p.code)}|parking_level" value="${p.parking_level ?? ''}"></td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|lends_parking" ${p.lends_parking ? 'checked' : ''}></td></tr>`;
   h += '</table></div>';
   h += `<div class="row"><h2 class="sp">Usuarios</h2><button data-newuser="1">＋ Agregar</button></div><div class="card list">${S.t.app_users.map(u => `<div class="it"><span class="avatar sm">${avatarHTML(u)}</span><div class="sp"><div>${esc(u.name || u.email)}</div><div class="m">${esc(u.email)} </div></div>${u.email.toLowerCase() === S.email.toLowerCase() ? '<span class="m">tú</span>' : `<select data-urole="${esc(u.email)}">${ROLE_OPTS.map(([v]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${v === 'superadmin' ? 'Superadmin' : v === 'socio' ? 'Socio' : 'Finanzas'}</option>`).join('')}</select><button data-deluser="${esc(u.email)}">Quitar</button>`}</div>`).join('')}</div>`;
   const be = setting('backup_emails', []);
