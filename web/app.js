@@ -194,7 +194,7 @@ const MENU = [
   ['compras', 'Compras', 'Lista de compras pendientes'],
   ['claves', 'Claves', 'Claves de puerta, bodega y caja fuerte'],
   ['ligas', 'Ligas Airbnb', 'Liga de cada anuncio para copiar'],
-  ['supuestos', 'Supuestos', 'Cajones, bono, usuarios']
+  ['supuestos', 'Supuestos', 'Chicas, cajones, bono, usuarios']
 ];
 const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · calendario, pendientes, compras, claves y ligas', finanzas: 'Finanzas · solo gastos e ingresos' };
 const ROLE_OPTS = [['superadmin', 'Superadmin (todo)'], ['socio', 'Socio (calendario, pendientes, compras, claves, ligas)'], ['finanzas', 'Finanzas (solo gastos e ingresos)']];
