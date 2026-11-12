@@ -167,6 +167,7 @@ $('codeForm').addEventListener('submit', async e => {
   const err = await DB.verifyCode($('email').value.trim().toLowerCase(), $('code').value.trim());
   if (err) $('loginMsg').textContent = 'Código incorrecto o vencido. Pide uno nuevo.';
 });
+if (CFG.GOOGLE) { $('btnGoogle').hidden = false; $('orLine').textContent = 'o con un código a tu correo'; }
 $('btnGoogle').addEventListener('click', async () => { const err = await DB.google(); if (err) $('loginMsg').textContent = 'Error: ' + err; });
 async function boot(email) {
   S.email = email; $('login').hidden = true; $('shell').hidden = false;
@@ -539,7 +540,7 @@ function pagoForm(k) { const N = nominaDe(k, S.semana); openForm({ title: 'Pago 
   save: async v => { if (!v.date) return 'Falta la fecha.'; if (!(Number(v.amount) > 0)) return 'El monto debe ser mayor a cero.'; ins('payroll_payments', { id: uid(), cleaner_key: k, week_start: S.semana, date: v.date, amount: Number(v.amount), method: v.method, note: v.note || null }, 'Pago registrado'); } }); }
 
 // ---------- MENÚ ----------
-VIEWS.menu = () => `<div class="menu">${MENU.map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div>`;
+VIEWS.menu = () => `<div class="menu">${MENU.map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
 
 // ---------- CAJONES QALINA ----------
 VIEWS.cajones = () => {

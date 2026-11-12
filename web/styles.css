@@ -146,3 +146,20 @@ h2{color:var(--mute);letter-spacing:.08em;font-weight:600;font-size:12px}
 .perfil .big-av{width:96px;height:96px;font-size:40px;margin:0 auto 10px;box-shadow:0 0 0 3px #fff,0 0 0 5px var(--cobre)}
 .avatar.sm{width:32px;height:32px;font-size:13px;cursor:default}
 .linkbtn{background:none;border:none;color:var(--acc);font-weight:600;font-size:14px;padding:4px 8px;cursor:pointer}
+
+/* ===== logo MGM ===== */
+.logo{border:none;border-radius:0;padding:2px 0;background:none;display:flex;align-items:center}
+.logo img{height:30px;width:auto;display:block}
+.login{position:fixed;inset:0;max-width:none;margin:0;background:#23272a;color:#fff;align-items:center;justify-content:center;padding:24px 24px 140px;overflow:hidden}
+.login>*{width:100%;max-width:360px;position:relative;z-index:1}
+.login-logo{width:100%;max-width:300px;height:auto;margin:0 auto 4px;display:block}
+.login-app{text-align:center;color:#c9a27e;letter-spacing:.32em;text-transform:uppercase;font-size:12px;font-weight:600;margin-bottom:22px}
+.login .gbtn{background:#fff;color:#23272a;border:none}
+.login .or{color:#9aa0a3}
+.login input{background:#2f3438;border-color:#454c50;color:#fff}.login input::placeholder{color:#8a9195}
+.login button.pri{background:#b0703c;border-color:#b0703c;color:#fff}
+.login .m{color:#c9cdd0;text-align:center}
+.login-sky{position:absolute!important;left:0;right:0;bottom:0;width:100%!important;max-width:none!important;height:120px;opacity:.55;z-index:0!important;pointer-events:none}
+.menu-foot{margin:28px -14px -10px;background:#23272a;border-radius:14px 14px 0 0;padding:22px 16px 0;text-align:center;overflow:hidden}
+.menu-foot img.l{width:180px;height:auto;opacity:.95}
+.menu-foot img.s{display:block;width:100%;height:70px;opacity:.5;margin-top:10px}
