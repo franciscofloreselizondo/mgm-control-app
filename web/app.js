@@ -436,10 +436,17 @@ function sheetLista(titulo, rs, modo) {
     return `<div class="card"><div class="row"><span class="dp">${esc(r.property_code)}</span><span>${esc(r.guest)}</span><span class="sp"></span><button data-editres="${r.id}">Editar</button></div><div class="m">${fmt(r.checkin)} → ${fmt(r.checkout)}${car ? ' · ' + car : ''}</div>${modo === 'sale' ? `<div class="m">Limpia: ${r.cleaner_key ? esc(nombre(r.cleaner_key)) : '<b style="color:var(--baja)">sin asignar</b>'}${entraMismoDia(r) ? ' · entra otro huésped hoy' : ''}</div>` : ''}</div>`; }).join('') : '<div class="empty">Nadie.</div>'}
     <div class="row" style="margin-top:10px"><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
 }
+const libres = d => { const occ = new Set(ocupadas(d).map(r => r.property_code)); return props().filter(p => !occ.has(p.code) && !bloqueado(p.code, d)); };
+function sheetLibres(d) {
+  const L = libres(d).map(p => ({ p, n: activas().filter(r => r.property_code === p.code && r.checkin >= d).sort((a, b) => a.checkin.localeCompare(b.checkin))[0] }))
+    .sort((a, b) => (a.n ? a.n.checkin : '9999').localeCompare(b.n ? b.n.checkin : '9999'));
+  sheet(`<h3>Libres esta noche</h3>${L.length ? L.map(({ p, n }) => `<div class="card"><div class="row"><span class="dp">${esc(p.code)}</span><span class="sp"></span>${n && n.checkin === d ? '<span class="b alta">ENTRA HOY</span>' : ''}</div><div class="m">${n ? `Próxima entrada: ${fmt(n.checkin)} · ${esc(n.guest)}` : 'Sin reservas próximas'}</div></div>`).join('') : '<div class="empty">Ninguno, todo ocupado.</div>'}
+    <div class="row" style="margin-top:10px"><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
+}
 VIEWS.hoy = () => {
   const P = pendientes(), d = today(), act = activas();
-  const salen = act.filter(r => r.checkout === d), entran = act.filter(r => r.checkin === d), occ = ocupadas(d);
-  let h = `<div class="m" style="margin-bottom:8px">${fmt(d)}</div><div class="kpis"><button class="kpi" data-hoy="sale"><div class="v">${salen.length}</div><div class="l">Salen hoy ›</div></button><button class="kpi" data-hoy="entra"><div class="v">${entran.length}</div><div class="l">Entran hoy ›</div></button><button class="kpi" data-hoy="occ"><div class="v">${occ.length}</div><div class="l">Ocupados ›</div></button></div>`;
+  const salen = act.filter(r => r.checkout === d), entran = act.filter(r => r.checkin === d), occ = ocupadas(d), lib = libres(d);
+  let h = `<div class="m" style="margin-bottom:8px">${fmt(d)}</div><div class="kpis k4"><button class="kpi" data-hoy="sale"><div class="v">${salen.length}</div><div class="l">Salen hoy ›</div></button><button class="kpi" data-hoy="entra"><div class="v">${entran.length}</div><div class="l">Entran hoy ›</div></button><button class="kpi" data-hoy="occ"><div class="v">${occ.length}</div><div class="l">Ocupados ›</div></button><button class="kpi" data-hoy="libre"><div class="v">${lib.length}</div><div class="l">Libres ›</div></button></div>`;
   h += '<h2>Limpiezas por asignar · próximos 7 días</h2>';
   h += P.limpiezas.length ? P.limpiezas.map(r => `<div class="card row"><div class="sp"><div><span class="dp">${esc(r.dp)}</span> · ${fmt(r.f)}${r.f === d ? ' <span class="b baja">HOY</span>' : ''}</div><div class="m">${esc(r.txt)}</div></div><button class="pri" ${r.extra ? 'data-extra' : 'data-asig'}="${r.id}">Asignar</button></div>`).join('') : '<div class="card empty">Todo asignado ✓</div>';
   if (P.cajones.length) h += '<h2>Autos sin cajón</h2>' + P.cajones.map(r => `<div class="card row"><div class="sp"><div><span class="dp">${esc(r.property_code)}</span> · ${esc(r.guest)}</div><div class="m">${fmt(r.checkin)} → ${fmt(r.checkout)}</div></div><button class="pri" data-res="${r.id}">Asignar cajón</button></div>`).join('');
@@ -783,7 +790,7 @@ $('view').addEventListener('click', async e => {
   if (d.newtask) return taskForm(null);
   if (d.newbuy) return buyForm(null);
   if (d.fset) { const [g, k, v] = d.fset.split('|'); S.f[g][k] = v; return render(); }
-  if (d.hoy) { const t = today(), a = activas(); return d.hoy === 'sale' ? sheetLista('Salen hoy', a.filter(r => r.checkout === t), 'sale') : d.hoy === 'entra' ? sheetLista('Entran hoy', a.filter(r => r.checkin === t)) : sheetLista('Ocupados esta noche', ocupadas(t)); }
+  if (d.hoy) { const t = today(), a = activas(); return d.hoy === 'sale' ? sheetLista('Salen hoy', a.filter(r => r.checkout === t), 'sale') : d.hoy === 'entra' ? sheetLista('Entran hoy', a.filter(r => r.checkin === t)) : d.hoy === 'libre' ? sheetLibres(t) : sheetLista('Ocupados esta noche', ocupadas(t)); }
   if (d.cm) { const n = +d.cm; if (!n) { S.calMes = today().slice(0, 7); S.calScroll = true; } else { const [y, m] = S.calMes.split('-').map(Number); const x = new Date(y, m - 1 + n, 1); S.calMes = x.getFullYear() + '-' + pad(x.getMonth() + 1); } return render(); }
   if (d.zoom) { S.zoom = Math.min(1.4, Math.max(0.3, Math.round((S.zoom + 0.1 * +d.zoom) * 10) / 10)); ls.set('mgm-zoom', S.zoom); return render(); }
   if (d.dn) { S.dia = +d.dn ? add(S.dia, +d.dn) : today(); return render(); }
