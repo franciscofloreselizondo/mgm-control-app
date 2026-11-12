@@ -23,6 +23,7 @@ const $ = id => document.getElementById(id);
 const ls = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} } };
 
 const ICON = {
+  home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   task: '<path d="M9 11l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="3"/>',
   cart: '<circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M3 4h2l2.4 11h11l2-8H7"/>',
@@ -30,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '20';
+const APP_VER = '21';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -207,7 +208,7 @@ const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · cale
 const ROLE_OPTS = [['superadmin', 'Superadmin (todo)'], ['socio', 'Socio (calendario, pendientes, compras, claves, ligas)'], ['finanzas', 'Finanzas (solo gastos e ingresos)']];
 const ACCESS = {
   superadmin: { home: 'hoy', bar: null },
-  socio: { home: 'calendario', bar: [['calendario', 'Calendario', ICON.cal], ['pendientes', 'Pendientes', ICON.task], ['compras', 'Compras', ICON.cart], ['claves', 'Claves', ICON.key], ['ligas', 'Ligas', ICON.link]] },
+  socio: { home: 'hoy', bar: [['hoy', 'Hoy', ICON.home, 1], ['calendario', 'Calendario', ICON.cal], ['pendientes', 'Pendientes', ICON.task], ['compras', 'Compras', ICON.cart], ['claves', 'Claves', ICON.key], ['ligas', 'Ligas', ICON.link]] },
   finanzas: { home: 'finanzas', bar: [] }
 };
 const isSuper = () => S.me && S.me.role === 'superadmin';
@@ -218,7 +219,7 @@ function setupTabbar() {
   if (!DEFAULT_BAR) DEFAULT_BAR = $('tabbar').innerHTML;
   const acc = ACCESS[role] || ACCESS.superadmin;
   if (!acc.bar) { $('tabbar').innerHTML = DEFAULT_BAR; $('tabbar').style.gridTemplateColumns = ''; return; }
-  $('tabbar').innerHTML = acc.bar.map(([t, l, ic]) => `<button data-t="${t}"><svg viewBox="0 0 24 24">${ic}</svg><span>${l}</span></button>`).join('');
+  $('tabbar').innerHTML = acc.bar.map(([t, l, ic, bdg]) => `<button data-t="${t}"><svg viewBox="0 0 24 24">${ic}</svg><span>${l}</span>${bdg ? '<i id="badge" hidden></i>' : ''}</button>`).join('');
   $('tabbar').style.gridTemplateColumns = `repeat(${Math.max(acc.bar.length, 1)},1fr)`;
 }
 function allowed(tab) { const acc = ACCESS[S.me.role] || ACCESS.superadmin; return tab === 'perfil' || !acc.bar || acc.bar.some(b => b[0] === tab) || tab === acc.home; }
