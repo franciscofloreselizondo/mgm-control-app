@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '24';
+const APP_VER = '25';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -211,7 +211,7 @@ async function boot(email) {
   render();
   const timers = {};
   DB.subscribe(t => { clearTimeout(timers[t]); timers[t] = setTimeout(() => reload(t), 400); }, ok => { S.live = ok; renderLive(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && !CFG.DEMO) TABLES.forEach(reload); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) return; if (S.tab === 'calendario') { S.calMes = today().slice(0, 7); S.calScroll = true; render(); } if (!CFG.DEMO) TABLES.forEach(reload); });
 }
 
 // ---------- navegación ----------
@@ -273,8 +273,10 @@ function irAHoy() {
   const sem = $('semhoy'); if (!sem) return;
   sem.scrollIntoView({ block: 'start' });
   const th = sem.querySelector('th.hoy'), dpc = sem.querySelector('th.dpc'); if (!th || !dpc) return;
-  const z = S.zoom || 1, delta = th.getBoundingClientRect().left - dpc.getBoundingClientRect().right;
-  sem.scrollLeft += delta / z;
+  let x = 0; for (let el = th; el && el !== sem; el = el.offsetParent) x += el.offsetLeft;
+  sem.scrollLeft = Math.max(0, x - dpc.offsetWidth);
+  // corrección por zoom (iPhone y Chrome lo reportan distinto)
+  for (let i = 0; i < 2; i++) { const d = th.getBoundingClientRect().left - dpc.getBoundingClientRect().right; if (Math.abs(d) < 3) break; sem.scrollLeft += i ? d : d / (S.zoom || 1); }
 }
 function renderLive() { const l = $('live'); l.className = 'live' + (S.live ? '' : ' off'); }
 function render() {
@@ -292,7 +294,10 @@ function render() {
   document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.t === (S.tab === 'perfil' ? '' : sub ? 'menu' : S.tab)));
   const P = isSuper() ? pendientes() : { limpiezas: [], cajones: [] }; const n = P.limpiezas.length + P.cajones.length;
   if ($('badge')) { $('badge').hidden = !n; $('badge').textContent = n; }
+  const keepX = S.tab === 'calendario' && S.lastTab === 'calendario' && S.lastMes === S.calMes ? [...document.querySelectorAll('#view .cal')].map(c => c.scrollLeft) : null;
   $('view').innerHTML = VIEWS[S.tab]();
+  if (keepX) document.querySelectorAll('#view .cal').forEach((c, i) => { if (keepX[i]) c.scrollLeft = keepX[i]; });
+  S.lastTab = S.tab; S.lastMes = S.calMes;
   fijarCabecera();
   { const rs = document.documentElement.style, bar = document.querySelector('.bar'), ch = document.querySelector('.calhead');
     if (bar) rs.setProperty('--barh', bar.offsetHeight + 'px'); if (ch) rs.setProperty('--calh', ch.offsetHeight + 'px'); }
