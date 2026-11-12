@@ -1,7 +1,7 @@
 -- Usuarios. Cambia los correos por los reales antes de ejecutar.
 insert into app_users(email, name, role) values
   ('maria@CAMBIAR.com', 'María', 'superadmin'),
-  ('mike@CAMBIAR.com',  'Mike',  'superadmin'),
+  ('mike@CAMBIAR.com',  'Mike',  'socio'),
   ('sandy@CAMBIAR.com', 'Sandy', 'finanzas')
 on conflict (email) do update set name = excluded.name, role = excluded.role;
 

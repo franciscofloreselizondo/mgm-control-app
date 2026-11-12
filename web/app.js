@@ -22,6 +22,14 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() 
 const $ = id => document.getElementById(id);
 const ls = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} } };
 
+const ICON = {
+  cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  task: '<path d="M9 11l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="3"/>',
+  cart: '<circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M3 4h2l2.4 11h11l2-8H7"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
+};
+let DEFAULT_BAR = '';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -74,7 +82,7 @@ function supaDB() {
 
 // ---------- capa de datos: maqueta (se guarda en este navegador) ----------
 function demoDB() {
-  const KEY = 'mgm-demo-v5';
+  const KEY = 'mgm-demo-v6';
   const seed = () => JSON.parse(JSON.stringify(window.MGM_SEED || {}));
   let T = ls.get(KEY, null) || seed();
   let role = ls.get(KEY + '-role', 'superadmin');
@@ -87,7 +95,7 @@ function demoDB() {
     get role() { return role; },
     setRole(r) { role = r; ls.set(KEY + '-role', r); },
     reset(examples) { T = seed(); fix(); if (examples && window.MGM_EXAMPLES) window.MGM_EXAMPLES(T, { today, add, uid, monday }); save(); },
-    async session() { return role === 'superadmin' ? 'maria@ejemplo.com' : 'sandy@ejemplo.com'; },
+    async session() { return { superadmin: 'maria@ejemplo.com', socio: 'mike@ejemplo.com', finanzas: 'sandy@ejemplo.com' }[role] || 'maria@ejemplo.com'; },
     onAuth() {}, async sendCode() { return null; }, async verifyCode() { return null; }, async google() { return null; }, logout() {},
     async load(t) { return { rows: JSON.parse(JSON.stringify(T[t])) }; },
     async insert(t, row) { T[t].push({ ...row }); save(); return null; },
@@ -95,7 +103,7 @@ function demoDB() {
     async remove(t, match) { T[t] = T[t].filter(r => !hit(r, match)); save(); return null; },
     async upsert(t, row, pk) { const i = T[t].findIndex(r => pk.every(k => r[k] === row[k])); if (i >= 0) Object.assign(T[t][i], row); else T[t].push({ ...row }); save(); return null; },
     upload(blob) { return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); }); },
-    async setAvatar(img) { const u = T.app_users.find(x => x.email === (role === 'superadmin' ? 'maria@ejemplo.com' : 'sandy@ejemplo.com')); if (u) { u.avatar = img; save(); } return null; },
+    async setAvatar(img) { const u = T.app_users.find(x => x.role === role); if (u) { u.avatar = img; save(); } return null; },
     async photoUrl(path) { return path; },
     subscribe(_c, onState) { onState(true); }
   };
@@ -184,7 +192,25 @@ const MENU = [
   ['ligas', 'Ligas Airbnb', 'Liga de cada anuncio para copiar'],
   ['supuestos', 'Supuestos', 'Cajones, bono, usuarios']
 ];
-const ROLES = { superadmin: 'Superadmin · acceso a todo', finanzas: 'Finanzas · solo gastos e ingresos' };
+const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · calendario, pendientes, compras, claves y ligas', finanzas: 'Finanzas · solo gastos e ingresos' };
+const ROLE_OPTS = [['superadmin', 'Superadmin (todo)'], ['socio', 'Socio (calendario, pendientes, compras, claves, ligas)'], ['finanzas', 'Finanzas (solo gastos e ingresos)']];
+const ACCESS = {
+  superadmin: { home: 'hoy', bar: null },
+  socio: { home: 'calendario', bar: [['calendario', 'Calendario', ICON.cal], ['pendientes', 'Pendientes', ICON.task], ['compras', 'Compras', ICON.cart], ['claves', 'Claves', ICON.key], ['ligas', 'Ligas', ICON.link]] },
+  finanzas: { home: 'finanzas', bar: [] }
+};
+const isSuper = () => S.me && S.me.role === 'superadmin';
+const homeTab = () => (ACCESS[S.me && S.me.role] || ACCESS.superadmin).home;
+let barRole = null;
+function setupTabbar() {
+  const role = S.me.role; if (barRole === role) return; barRole = role;
+  if (!DEFAULT_BAR) DEFAULT_BAR = $('tabbar').innerHTML;
+  const acc = ACCESS[role] || ACCESS.superadmin;
+  if (!acc.bar) { $('tabbar').innerHTML = DEFAULT_BAR; $('tabbar').style.gridTemplateColumns = ''; return; }
+  $('tabbar').innerHTML = acc.bar.map(([t, l, ic]) => `<button data-t="${t}"><svg viewBox="0 0 24 24">${ic}</svg><span>${l}</span></button>`).join('');
+  $('tabbar').style.gridTemplateColumns = `repeat(${Math.max(acc.bar.length, 1)},1fr)`;
+}
+function allowed(tab) { const acc = ACCESS[S.me.role] || ACCESS.superadmin; return tab === 'perfil' || !acc.bar || acc.bar.some(b => b[0] === tab) || tab === acc.home; }
 const TITLES = { perfil: 'Mi perfil', reservas: 'Reservas', hoy: 'Hoy', calendario: 'Calendario', nomina: 'Nómina', menu: 'Menú', ...Object.fromEntries(MENU.map(m => [m[0], m[1]])) };
 const VIEWS = {};
 function go(tab) { S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; render(); }
@@ -192,17 +218,18 @@ function renderLive() { const l = $('live'); l.className = 'live' + (S.live ? ''
 function render() {
   if (!S.email) return;
   if (!S.me) { $('tabbar').hidden = true; $('avatar').hidden = true; $('view').innerHTML = `<div class="err">Tu correo (${esc(S.email)}) no tiene acceso. Pide a María o Mike que te agreguen en Supuestos → Usuarios.</div><button data-logout="1">Cerrar sesión</button>`; return; }
-  const fin = S.me.role === 'finanzas';
-  if (fin && S.tab !== 'perfil') S.tab = 'finanzas';
-  if (!VIEWS[S.tab]) S.tab = 'hoy';
-  const sub = !MAIN.includes(S.tab);
+  setupTabbar();
+  const acc = ACCESS[S.me.role] || ACCESS.superadmin, fin = S.me.role === 'finanzas';
+  if (!VIEWS[S.tab] || !allowed(S.tab)) S.tab = acc.home;
+  const main = acc.bar ? acc.bar.map(b => b[0]) : MAIN;
+  const sub = !main.includes(S.tab) && !fin;
   $('tabbar').hidden = fin;
-  $('back').hidden = !sub || fin || S.tab === 'perfil';
+  $('back').hidden = !sub || !!acc.bar || S.tab === 'perfil';
   $('avatar').innerHTML = avatarHTML(S.me); $('avatar').hidden = false;
   $('title').textContent = TITLES[S.tab];
   document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.t === (S.tab === 'perfil' ? '' : sub ? 'menu' : S.tab)));
-  const P = pendientes(); const n = P.limpiezas.length + P.cajones.length;
-  $('badge').hidden = !n; $('badge').textContent = n;
+  const P = isSuper() ? pendientes() : { limpiezas: [], cajones: [] }; const n = P.limpiezas.length + P.cajones.length;
+  if ($('badge')) { $('badge').hidden = !n; $('badge').textContent = n; }
   $('view').innerHTML = VIEWS[S.tab]();
   if (S.calScroll && S.tab === 'calendario') { S.calScroll = false; const el = $('semhoy'); if (el) el.scrollIntoView({ block: 'start' }); }
   renderLive();
@@ -287,6 +314,7 @@ function prestadores(v, selfId) {
 }
 function cleanerOpts(depa, fecha) { return [['', '— sin asignar —'], ...cleaners().map(c => { const t = rate(depa, c.key); return [c.key, c.name + (t != null ? ' · ' + money(t) : '') + (fecha && descansa(fecha, c.key) ? ' · descansa' : '')]; })]; }
 async function syncIngreso(r) {
+  if (!isSuper()) return;
   const ex = S.t.transactions.find(t => t.reservation_id === r.id);
   const want = r.status !== 'cancelada' && r.amount != null && Number(r.amount) > 0;
   const data = { kind: 'ingreso', date: r.checkin, property_code: r.property_code, category: 'Ingreso por reserva', description: `Reserva ${r.guest} · ${fmt(r.checkin)} → ${fmt(r.checkout)}`, amount: Number(r.amount) };
@@ -313,13 +341,13 @@ function resForm(id, preset) {
         q && v.car === 'si' && p.has_parking && { type: 'note', html: `Usa el cajón del depa (sótano ${p.parking_level ?? '?'}).` },
         q && v.car === 'si' && !p.has_parking && { k: 'parking_from', label: 'Cajón prestado por', type: 'select', options: [['', '— por asignar —'], ...prestadores(v, r && r.id)] },
         { k: 'cleaner_key', label: `Chica de limpieza (salida ${v.checkout ? fmt(v.checkout) : ''})`, type: 'select', options: cleanerOpts(v.property_code, v.checkout) },
-        { k: 'amount', label: 'Monto de la reserva (opcional)', type: 'number', ph: 'Se registra como ingreso' }
+        isSuper() && { k: 'amount', label: 'Monto de la reserva (opcional)', type: 'number', ph: 'Se registra como ingreso' }
       ];
     },
     actions: r ? [
       r.status === 'cancelada' ? { label: 'Reactivar', run: async () => { await upd('reservations', { id: r.id }, { status: 'activa' }, 'Reactivada'); syncIngreso({ ...r, status: 'activa' }); } }
         : { label: 'Cancelar reserva', confirm: true, run: async () => { await upd('reservations', { id: r.id }, { status: 'cancelada', cleaner_key: null, parking_from: null }, 'Reserva cancelada'); syncIngreso({ ...r, status: 'cancelada' }); } },
-      { label: 'Borrar', confirm: true, run: async () => { const ex = S.t.transactions.find(t => t.reservation_id === r.id); if (ex) await del('transactions', { id: ex.id }); del('reservations', { id: r.id }, 'Borrada'); } }
+      { label: 'Borrar', confirm: true, run: async () => { const ex = isSuper() && S.t.transactions.find(t => t.reservation_id === r.id); if (ex) await del('transactions', { id: ex.id }); del('reservations', { id: r.id }, 'Borrada'); } }
     ] : [],
     save: async v => {
       if (!v.property_code) return 'Elige el departamento.';
@@ -330,7 +358,7 @@ function resForm(id, preset) {
       const row = {
         property_code: v.property_code, guest: v.guest.trim(), checkin: v.checkin, checkout: v.checkout,
         has_car: q ? car : null, parking_from: car && !p.has_parking ? v.parking_from || null : null,
-        cleaner_key: v.cleaner_key || null, amount: v.amount === '' || v.amount == null ? null : Number(v.amount), status: r ? r.status : 'activa'
+        cleaner_key: v.cleaner_key || null, amount: !isSuper() ? (r ? r.amount : null) : v.amount === '' || v.amount == null ? null : Number(v.amount), status: r ? r.status : 'activa'
       };
       if (r) await upd('reservations', { id: r.id }, row, 'Reserva guardada'); else { row.id = uid(); await ins('reservations', row, 'Reserva creada'); }
       syncIngreso({ ...row, id: r ? r.id : row.id });
@@ -722,7 +750,7 @@ VIEWS.supuestos = () => {
   h += '<h2>Cajones Qalina</h2><div class="card scroll"><table><tr><th>Depa</th><th>Tiene</th><th>Sótano</th><th>Presta</th></tr>';
   for (const p of props().filter(p => p.building === 'Qalina')) h += `<tr><td class="dp">${esc(p.code)}</td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|has_parking" ${p.has_parking ? 'checked' : ''}></td><td><input type="number" style="width:60px" data-pp="${esc(p.code)}|parking_level" value="${p.parking_level ?? ''}"></td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|lends_parking" ${p.lends_parking ? 'checked' : ''}></td></tr>`;
   h += '</table></div>';
-  h += `<div class="row"><h2 class="sp">Usuarios</h2><button data-newuser="1">＋ Agregar</button></div><div class="card list">${S.t.app_users.map(u => `<div class="it"><span class="avatar sm">${avatarHTML(u)}</span><div class="sp"><div>${esc(u.name || u.email)}</div><div class="m">${esc(u.email)} </div></div>${u.email.toLowerCase() === S.email.toLowerCase() ? '<span class="m">tú</span>' : `<select data-urole="${esc(u.email)}"><option value="superadmin" ${u.role === 'superadmin' ? 'selected' : ''}>Superadmin</option><option value="finanzas" ${u.role === 'finanzas' ? 'selected' : ''}>Finanzas</option></select><button data-deluser="${esc(u.email)}">Quitar</button>`}</div>`).join('')}</div>`;
+  h += `<div class="row"><h2 class="sp">Usuarios</h2><button data-newuser="1">＋ Agregar</button></div><div class="card list">${S.t.app_users.map(u => `<div class="it"><span class="avatar sm">${avatarHTML(u)}</span><div class="sp"><div>${esc(u.name || u.email)}</div><div class="m">${esc(u.email)} </div></div>${u.email.toLowerCase() === S.email.toLowerCase() ? '<span class="m">tú</span>' : `<select data-urole="${esc(u.email)}">${ROLE_OPTS.map(([v]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${v === 'superadmin' ? 'Superadmin' : v === 'socio' ? 'Socio' : 'Finanzas'}</option>`).join('')}</select><button data-deluser="${esc(u.email)}">Quitar</button>`}</div>`).join('')}</div>`;
   const be = setting('backup_emails', []);
   h += `<h2>Respaldo diario</h2><div class="card"><div class="m">Todos los días a las 10:00 pm se envía un Excel con toda la operación (calendario, reservas, nómina, gastos e ingresos, pendientes, compras…) a estos correos, separados por coma:</div><input style="width:100%;margin:8px 0" data-backup="1" value="${esc((Array.isArray(be) ? be : []).join(', '))}"><div class="row"><span class="m sp">Las claves de puerta no se incluyen.</span><button data-expbackup="1">Descargar respaldo ahora</button></div></div>`;
   h += `<div class="card row"><div class="sp m">${esc(S.email)}</div><button data-logout="1">Cerrar sesión</button></div>`;
@@ -734,7 +762,7 @@ $('tabbar').addEventListener('click', e => { const b = e.target.closest('button'
 $('back').addEventListener('click', () => go('menu'));
 const salir = () => { if (CFG.DEMO) return toast('En la maqueta no hay sesión que cerrar'); DB.logout(); };
 $('salir').addEventListener('click', salir);
-$('logo').addEventListener('click', () => go('hoy'));
+$('logo').addEventListener('click', () => S.me && go(homeTab()));
 $('avatar').addEventListener('click', () => go('perfil'));
 window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (t && t !== S.tab) { S.tab = t; render(); } });
 
@@ -773,7 +801,7 @@ $('view').addEventListener('click', async e => {
   if (d.togcleaner) { const c = S.t.cleaners.find(x => x.key === d.togcleaner); return upd('cleaners', { key: c.key }, { active: c.active === false }); }
   if (d.newcleaner) return openForm({ title: 'Agregar chica', values: { key: '', name: '' }, fields: () => [{ k: 'name', label: 'Nombre', type: 'text' }, { k: 'key', label: 'Clave (1 o 2 letras, sale en el calendario)', type: 'text' }],
     save: async v => { const key = (v.key || '').trim().toUpperCase(); if (!(v.name || '').trim()) return 'Falta el nombre.'; if (!/^[A-ZÑ]{1,2}$/.test(key)) return 'La clave debe ser 1 o 2 letras.'; if (S.t.cleaners.some(c => c.key === key)) return 'Esa clave ya existe.'; ins('cleaners', { key, name: v.name.trim(), phone: null, active: true }, 'Agregada'); } });
-  if (d.newuser) return openForm({ title: 'Agregar usuario', values: { email: '', name: '', role: 'superadmin' }, fields: () => [{ k: 'name', label: 'Nombre', type: 'text' }, { k: 'email', label: 'Correo', type: 'email' }, { k: 'role', label: 'Acceso', type: 'select', options: [['superadmin', 'Superadmin (todo)'], ['finanzas', 'Solo gastos e ingresos']] }],
+  if (d.newuser) return openForm({ title: 'Agregar usuario', values: { email: '', name: '', role: 'superadmin' }, fields: () => [{ k: 'name', label: 'Nombre', type: 'text' }, { k: 'email', label: 'Correo', type: 'email' }, { k: 'role', label: 'Acceso', type: 'select', options: ROLE_OPTS }],
     save: async v => { const email = (v.email || '').trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(email)) return 'Correo inválido.'; ups('app_users', { email, name: (v.name || '').trim() || null, role: v.role }, ['email'], 'Usuario agregado'); } });
   if (d.deluser) { if (!confirmTap(el)) return; return del('app_users', { email: d.deluser }, 'Usuario quitado'); }
   if (d.noavatar) return setAvatar(null);
@@ -798,7 +826,7 @@ $('view').addEventListener('change', e => {
 // maqueta: cambiar rol / cargar ejemplos
 if (CFG.DEMO) {
   const bar = $('demobar'); bar.hidden = false;
-  bar.innerHTML = `<b>MAQUETA</b> <select id="demoRole"><option value="superadmin">Ver como María (superadmin)</option><option value="finanzas">Ver como Sandy (finanzas)</option></select> <button id="demoEj">Cargar ejemplos</button> <button id="demoVac">Datos del Excel</button>`;
+  bar.innerHTML = `<b>MAQUETA</b> <select id="demoRole"><option value="superadmin">Ver como María (superadmin)</option><option value="socio">Ver como Mike (socio)</option><option value="finanzas">Ver como Sandy (finanzas)</option></select> <button id="demoEj">Cargar ejemplos</button> <button id="demoVac">Datos del Excel</button>`;
   $('demoRole').value = DB.role;
   const again = async () => { S.email = null; S.tab = 'hoy'; boot(await DB.session()); };
   $('demoRole').addEventListener('change', e => { DB.setRole(e.target.value); again(); });

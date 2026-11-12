@@ -23,7 +23,7 @@ create table if not exists cleaning_rates (
 );
 create table if not exists settings (key text primary key, value jsonb);
 create table if not exists app_users (
-  email text primary key, name text, role text not null check (role in ('superadmin','finanzas')),
+  email text primary key, name text, role text not null check (role in ('superadmin','socio','finanzas')),
   avatar text                                   -- foto de perfil (JPEG 256×256 en base64)
 );
 
