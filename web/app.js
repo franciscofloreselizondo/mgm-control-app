@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '22';
+const APP_VER = '23';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -146,10 +146,32 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = fals
 // ---------- escritura (optimista) ----------
 const hit = (r, match) => Object.keys(match).every(k => r[k] === match[k]);
 async function done(p, t, okMsg) { const err = await p; if (err) { toast('No se guardó: ' + err); reload(t); return false; } if (okMsg) toast(okMsg); return true; }
-function ins(t, row, msg) { S.t[t].push(row); render(); return done(DB.insert(t, row), t, msg); }
-function upd(t, match, patch, msg) { S.t[t].forEach(r => { if (hit(r, match)) Object.assign(r, patch); }); render(); return done(DB.update(t, match, patch), t, msg); }
-function del(t, match, msg) { S.t[t] = S.t[t].filter(r => !hit(r, match)); render(); return done(DB.remove(t, match), t, msg); }
-function ups(t, row, pk, msg) { const i = S.t[t].findIndex(r => pk.every(k => r[k] === row[k])); if (i >= 0) Object.assign(S.t[t][i], row); else S.t[t].push(row); render(); return done(DB.upsert(t, row, pk), t, msg); }
+// Deshacer: cada cambio guarda su inverso; los cambios de una misma acción (< 1.5 s) se agrupan
+const UNDO = []; let undoing = false, undoT = 0;
+const keyOf = r => r.id != null ? { id: r.id } : r.key != null ? { key: r.key } : r.code != null ? { code: r.code } : null;
+function pushUndo(t, ops, label) {
+  if (undoing || !ops.length) return; const now = Date.now();
+  if (UNDO.length && now - undoT < 1500) UNDO[UNDO.length - 1].ops.push(...ops); else UNDO.push({ ops, label: label || 'cambio' });
+  undoT = now; if (UNDO.length > 30) UNDO.shift();
+}
+async function deshacer() {
+  const u = UNDO.pop(); if (!u) return toast('Nada que deshacer');
+  undoing = true;
+  try { for (const op of u.ops.reverse()) { if (op.a === 'del') await del(op.t, op.m); else if (op.a === 'ins') await ins(op.t, op.row); else await upd(op.t, op.m, op.p); } }
+  finally { undoing = false; }
+  toast('Deshecho: ' + u.label);
+}
+function ins(t, row, msg) { const k = keyOf(row); pushUndo(t, [k ? { a: 'del', t, m: k } : { a: 'del', t, m: { ...row } }], msg); S.t[t].push(row); render(); return done(DB.insert(t, row), t, msg); }
+function upd(t, match, patch, msg) {
+  const ops = []; S.t[t].forEach(r => { if (hit(r, match)) { ops.push({ a: 'upd', t, m: keyOf(r) || match, p: Object.fromEntries(Object.keys(patch).map(k => [k, r[k] === undefined ? null : r[k]])) }); Object.assign(r, patch); } });
+  pushUndo(t, ops, msg); render(); return done(DB.update(t, match, patch), t, msg);
+}
+function del(t, match, msg) { pushUndo(t, S.t[t].filter(r => hit(r, match)).map(r => ({ a: 'ins', t, row: JSON.parse(JSON.stringify(r)) })), msg); S.t[t] = S.t[t].filter(r => !hit(r, match)); render(); return done(DB.remove(t, match), t, msg); }
+function ups(t, row, pk, msg) {
+  const i = S.t[t].findIndex(r => pk.every(k => r[k] === row[k])), m = Object.fromEntries(pk.map(k => [k, row[k]]));
+  pushUndo(t, [i >= 0 ? { a: 'upd', t, m, p: Object.fromEntries(Object.keys(row).map(k => [k, S.t[t][i][k] === undefined ? null : S.t[t][i][k]])) } : { a: 'del', t, m }], msg);
+  if (i >= 0) Object.assign(S.t[t][i], row); else S.t[t].push(row); render(); return done(DB.upsert(t, row, pk), t, msg);
+}
 async function reload(t) { const r = await DB.load(t); if (r.rows) { S.t[t] = r.rows; render(); } }
 
 // ---------- sesión ----------
@@ -503,7 +525,7 @@ VIEWS.calendario = () => {
   const exm = {}; S.t.cleanings.forEach(x => { exm[x.property_code + '|' + x.date] = x; });
   const NOM = ['LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO', 'DOMINGO'];
   let h = `<div class="calhead"><div class="nav"><button data-cm="-1">‹</button><div class="d">${MESES_L[m - 1]} ${y}</div><button data-cm="1">›</button><button data-cm="0">Hoy</button></div>`;
-  h += `<div class="row" style="margin-bottom:8px"><span class="m">Zoom</span><button data-zoom="-1">－</button><span class="m" style="min-width:42px;text-align:center">${Math.round(S.zoom * 100)}%</span><button data-zoom="1">＋</button><span class="sp"></span><button data-expcal="1">Excel</button></div><div class="row" style="margin-bottom:8px"><button class="sp" data-newextra="1">＋ Limpieza extra</button><button class="pri sp" data-newres="1">＋ Reserva</button></div>`;
+  h += `<div class="row" style="margin-bottom:8px"><span class="m">Zoom</span><button data-zoom="-1">－</button><span class="m" style="min-width:42px;text-align:center">${Math.round(S.zoom * 100)}%</span><button data-zoom="1">＋</button><span class="sp"></span><button data-undo="1" ${UNDO.length ? '' : 'disabled'} title="Deshacer el último cambio" aria-label="Deshacer" style="font-size:18px;padding:6px 12px">↶${UNDO.length ? '<small style="font-size:11px;margin-left:3px">' + UNDO.length + '</small>' : ''}</button><button data-expcal="1">Excel</button></div><div class="row" style="margin-bottom:8px"><button class="sp" data-newextra="1">＋ Limpieza extra</button><button class="pri sp" data-newres="1">＋ Reserva</button></div>`;
   h += `<div class="m" style="margin:0 2px 10px"><b style="color:#1f5fa8">Azul</b> entra / sigue (X) · <b style="color:#b5372b">Rojo</b> sale · <b style="color:#6b3fa0">Morado</b> quién limpia · <b style="color:#7b8082">Gris</b> cajón</div></div>`;
   h += `<div class="calwrap" style="zoom:${S.zoom}">`;
   for (let w = monday(ini); w <= ult; w = add(w, 7)) {
@@ -835,6 +857,7 @@ $('view').addEventListener('click', async e => {
   if (d.fset) { const [g, k, v] = d.fset.split('|'); S.f[g][k] = v; return render(); }
   if (d.hoy) { const t = today(), a = activas(); return d.hoy === 'sale' ? sheetLista('Salen hoy', a.filter(r => r.checkout === t), 'sale') : d.hoy === 'entra' ? sheetLista('Entran hoy', a.filter(r => r.checkin === t)) : d.hoy === 'libre' ? sheetLibres(t) : sheetLista('Ocupados esta noche', ocupadas(t)); }
   if (d.cm) { const n = +d.cm; if (!n) { S.calMes = today().slice(0, 7); S.calScroll = true; } else { const [y, m] = S.calMes.split('-').map(Number); const x = new Date(y, m - 1 + n, 1); S.calMes = x.getFullYear() + '-' + pad(x.getMonth() + 1); } return render(); }
+  if (d.undo) return deshacer();
   if (d.zoom) { S.zoom = Math.min(1.4, Math.max(0.3, Math.round((S.zoom + 0.1 * +d.zoom) * 10) / 10)); ls.set('mgm-zoom', S.zoom); return render(); }
   if (d.dn) { S.dia = +d.dn ? add(S.dia, +d.dn) : today(); return render(); }
   if (d.wn) { S.semana = +d.wn ? add(S.semana, 7 * +d.wn) : monday(today()); return render(); }

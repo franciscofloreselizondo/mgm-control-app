@@ -179,3 +179,4 @@ h2{color:var(--mute);letter-spacing:.08em;font-weight:600;font-size:12px}
 .jump[hidden]{display:none}
 .jump svg{width:22px;height:22px;fill:none;stroke:var(--ink);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s}
 .jump.up svg{transform:rotate(180deg)}
+button:disabled{opacity:.4;cursor:default}
