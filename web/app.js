@@ -232,6 +232,8 @@ function render() {
   const P = isSuper() ? pendientes() : { limpiezas: [], cajones: [] }; const n = P.limpiezas.length + P.cajones.length;
   if ($('badge')) { $('badge').hidden = !n; $('badge').textContent = n; }
   $('view').innerHTML = VIEWS[S.tab]();
+  { const rs = document.documentElement.style, bar = document.querySelector('.bar'), ch = document.querySelector('.calhead');
+    if (bar) rs.setProperty('--barh', bar.offsetHeight + 'px'); if (ch) rs.setProperty('--calh', ch.offsetHeight + 'px'); }
   if (S.calScroll && S.tab === 'calendario') { S.calScroll = false; const el = $('semhoy'); if (el) el.scrollIntoView({ block: 'start' }); }
   renderLive();
 }
@@ -461,9 +463,9 @@ VIEWS.calendario = () => {
   activas().forEach(r => { (by[r.property_code] ||= []).push(r); if (r.parking_from) (lent[r.parking_from] ||= []).push(r); });
   const exm = {}; S.t.cleanings.forEach(x => { exm[x.property_code + '|' + x.date] = x; });
   const NOM = ['LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO', 'DOMINGO'];
-  let h = `<div class="nav"><button data-cm="-1">‹</button><div class="d">${MESES_L[m - 1]} ${y}</div><button data-cm="1">›</button><button data-cm="0">Hoy</button></div>`;
+  let h = `<div class="calhead"><div class="nav"><button data-cm="-1">‹</button><div class="d">${MESES_L[m - 1]} ${y}</div><button data-cm="1">›</button><button data-cm="0">Hoy</button></div>`;
   h += `<div class="row" style="margin-bottom:8px"><span class="m">Zoom</span><button data-zoom="-1">－</button><span class="m" style="min-width:42px;text-align:center">${Math.round(S.zoom * 100)}%</span><button data-zoom="1">＋</button><span class="sp"></span><button data-expcal="1">Excel</button></div><div class="row" style="margin-bottom:8px"><button class="sp" data-newextra="1">＋ Limpieza extra</button><button class="pri sp" data-newres="1">＋ Reserva</button></div>`;
-  h += `<div class="m" style="margin:0 2px 10px"><b style="color:#1f5fa8">Azul</b> entra / sigue (X) · <b style="color:#b5372b">Rojo</b> sale · <b style="color:#6b3fa0">Morado</b> quién limpia · <b style="color:#7b8082">Gris</b> cajón</div>`;
+  h += `<div class="m" style="margin:0 2px 10px"><b style="color:#1f5fa8">Azul</b> entra / sigue (X) · <b style="color:#b5372b">Rojo</b> sale · <b style="color:#6b3fa0">Morado</b> quién limpia · <b style="color:#7b8082">Gris</b> cajón</div></div>`;
   h += `<div class="calwrap" style="zoom:${S.zoom}">`;
   for (let w = monday(ini); w <= ult; w = add(w, 7)) {
     const dias = [0, 1, 2, 3, 4, 5, 6].map(i => add(w, i));
