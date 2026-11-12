@@ -317,7 +317,7 @@ function prestadores(v, selfId) {
     return [p.code, `${p.code} · sótano ${p.parking_level ?? '?'}${busy ? ' · OCUPADO' : ''}`];
   });
 }
-function cleanerOpts(depa, fecha) { return [['', '— sin asignar —'], ...cleaners().map(c => { const t = rate(depa, c.key); return [c.key, c.name + (t != null ? ' · ' + money(t) : '') + (fecha && descansa(fecha, c.key) ? ' · descansa' : '')]; })]; }
+function cleanerOpts(depa, fecha, actual) { return [['', '— sin asignar —'], ...cleaners().filter(c => !(fecha && descansa(fecha, c.key)) || c.key === actual).map(c => { const t = rate(depa, c.key); return [c.key, c.name + (t != null ? ' · ' + money(t) : '') + (fecha && descansa(fecha, c.key) ? ' · descansa' : '')]; })]; }
 async function syncIngreso(r) {
   if (!isSuper()) return;
   const ex = S.t.transactions.find(t => t.reservation_id === r.id);
@@ -345,7 +345,7 @@ function resForm(id, preset) {
         q && { k: 'car', label: '¿Trae auto?', type: 'select', options: [['no', 'No'], ['si', 'Sí']] },
         q && v.car === 'si' && p.has_parking && { type: 'note', html: `Usa el cajón del depa (sótano ${p.parking_level ?? '?'}).` },
         q && v.car === 'si' && !p.has_parking && { k: 'parking_from', label: 'Cajón prestado por', type: 'select', options: [['', '— por asignar —'], ...prestadores(v, r && r.id)] },
-        { k: 'cleaner_key', label: `Chica de limpieza (salida ${v.checkout ? fmt(v.checkout) : ''})`, type: 'select', options: cleanerOpts(v.property_code, v.checkout) },
+        { k: 'cleaner_key', label: `Chica de limpieza (salida ${v.checkout ? fmt(v.checkout) : ''})`, type: 'select', options: cleanerOpts(v.property_code, v.checkout, v.cleaner_key) },
         isSuper() && { k: 'amount', label: 'Monto de la reserva (opcional)', type: 'number', ph: 'Se registra como ingreso' }
       ];
     },
@@ -379,7 +379,7 @@ function extraForm(id, preset) {
       return [{ type: 'note', html: 'Para limpiezas que no son por salida: a media estancia o con el depa vacío. Cuenta para la nómina.' },
         { k: 'property_code', label: 'Departamento', type: 'select', options: depaOpts() }, { k: 'date', label: 'Fecha', type: 'date', dyn: true },
         occ && { type: 'note', html: `Ese día está hospedado ${esc(occ.guest)} (${fmt(occ.checkin)} → ${fmt(occ.checkout)}).` },
-        { k: 'cleaner_key', label: 'Chica de limpieza', type: 'select', options: cleanerOpts(v.property_code, v.date) }, { k: 'note', label: 'Nota (opcional)', type: 'text', ph: 'Ej. limpieza a media estancia' }]; },
+        { k: 'cleaner_key', label: 'Chica de limpieza', type: 'select', options: cleanerOpts(v.property_code, v.date, v.cleaner_key) }, { k: 'note', label: 'Nota (opcional)', type: 'text', ph: 'Ej. limpieza a media estancia' }]; },
     actions: x ? [{ label: 'Borrar', confirm: true, run: () => del('cleanings', { id: x.id }, 'Borrada') }] : [],
     save: async v => { if (!v.property_code) return 'Elige el departamento.'; if (!v.date) return 'Falta la fecha.';
       const row = { property_code: v.property_code, date: v.date, cleaner_key: v.cleaner_key || null, note: (v.note || '').trim() || null };
@@ -431,7 +431,7 @@ const entraMismoDia = r => activas().some(x => x.id !== r.id && x.property_code 
 function sheetAsignar(id) {
   const r = S.t.reservations.find(x => x.id === id); if (!r) return;
   sheet(`<h3>${esc(r.property_code)} · ${fmt(r.checkout)}</h3><div class="m">Sale ${esc(r.guest)}${entraMismoDia(r) ? ' · entra otro huésped ese día' : ''}</div>
-    <div class="chips">${cleaners().map(c => { const off = descansa(r.checkout, c.key), t = rate(r.property_code, c.key); return `<button class="chip ${r.cleaner_key === c.key ? 'on' : ''}" data-pick="${c.key}" data-id="${r.id}" ${off ? 'style="opacity:.45"' : ''}>${esc(c.name)}${t != null ? ' · ' + money(t) : ''}${off ? ' · descansa' : ''}</button>`; }).join('')}</div>
+    <div class="chips">${cleaners().filter(c => !descansa(r.checkout, c.key) || r.cleaner_key === c.key).map(c => { const off = descansa(r.checkout, c.key), t = rate(r.property_code, c.key); return `<button class="chip ${r.cleaner_key === c.key ? 'on' : ''}" data-pick="${c.key}" data-id="${r.id}" ${off ? 'style="opacity:.45"' : ''}>${esc(c.name)}${t != null ? ' · ' + money(t) : ''}${off ? ' · descansa' : ''}</button>`; }).join('')}</div>
     <div class="row" style="margin-top:14px"><button data-pick="" data-id="${r.id}">Quitar asignación</button><button data-editres="${r.id}">Editar reserva</button><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
 }
 function sheetLista(titulo, rs, modo) {
