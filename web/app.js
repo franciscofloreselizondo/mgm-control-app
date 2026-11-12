@@ -30,6 +30,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
+const APP_VER = '19';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -157,6 +158,12 @@ async function start() {
   const email = await DB.session();
   email ? boot(email) : showLogin();
   if (!CFG.DEMO && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (!CFG.DEMO) { // actualización automática: al volver a la app revisa si hay versión nueva y recarga
+    const chk = async () => { try { const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); const v = (await r.json()).v;
+      if (v && v !== APP_VER) { try { const rg = await navigator.serviceWorker?.getRegistration(); await rg?.update(); } catch (_) {} location.reload(); } } catch (_) {} };
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') chk(); });
+    setInterval(chk, 10 * 60 * 1000); chk();
+  }
 }
 function showLogin() { S.email = null; $('shell').hidden = true; $('login').hidden = false; }
 $('loginForm').addEventListener('submit', async e => {
