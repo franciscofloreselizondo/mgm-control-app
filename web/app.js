@@ -30,7 +30,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '19';
+const APP_VER = '20';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -114,7 +114,7 @@ const DB = CFG.DEMO ? demoDB() : supaDB();
 // ---------- estado ----------
 const S = {
   t: Object.fromEntries(TABLES.map(t => [t, []])), email: null, me: null, live: false,
-  tab: (location.hash || '#hoy').slice(1), dia: today(), semana: monday(today()), calMes: today().slice(0, 7),
+  tab: (location.hash || '#hoy').slice(1), dia: today(), semana: monday(today()), calMes: today().slice(0, 7), calScroll: true,
   zoom: ls.get('mgm-zoom', 1),
   f: {
     res: { show: 'proximas', depa: '' },
@@ -244,6 +244,14 @@ function initJump() {
   b.onclick = () => scrollTo({ top: b.dataset.dir === 'up' ? 0 : document.documentElement.scrollHeight, behavior: 'smooth' });
   upd();
 }
+// Calendario: lleva la vista a la semana y columna de hoy
+function irAHoy() {
+  const sem = $('semhoy'); if (!sem) return;
+  sem.scrollIntoView({ block: 'start' });
+  const th = sem.querySelector('th.hoy'), dpc = sem.querySelector('th.dpc'); if (!th || !dpc) return;
+  const z = S.zoom || 1, delta = th.getBoundingClientRect().left - dpc.getBoundingClientRect().right;
+  sem.scrollLeft += delta / z;
+}
 function renderLive() { const l = $('live'); l.className = 'live' + (S.live ? '' : ' off'); }
 function render() {
   if (!S.email) return;
@@ -264,7 +272,7 @@ function render() {
   fijarCabecera();
   { const rs = document.documentElement.style, bar = document.querySelector('.bar'), ch = document.querySelector('.calhead');
     if (bar) rs.setProperty('--barh', bar.offsetHeight + 'px'); if (ch) rs.setProperty('--calh', ch.offsetHeight + 'px'); }
-  if (S.calScroll && S.tab === 'calendario') { S.calScroll = false; const el = $('semhoy'); if (el) el.scrollIntoView({ block: 'start' }); }
+  if (S.calScroll && S.tab === 'calendario') { S.calScroll = false; irAHoy(); requestAnimationFrame(irAHoy); setTimeout(irAHoy, 300); }
   renderLive();
 }
 
