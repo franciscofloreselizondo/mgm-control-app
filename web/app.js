@@ -188,7 +188,7 @@ async function boot(email) {
 const MAIN = ['hoy', 'reservas', 'calendario', 'nomina', 'menu'];
 const MENU = [
   ['cajones', 'Cajones Qalina', 'Quién trae auto y qué cajón usa'],
-  ['limpiezas', 'Limpiezas', 'Chicas, tarifas y descansos'],
+  ['limpiezas', 'Limpiezas', 'Descansos y tarifas'],
   ['finanzas', 'Gastos e ingresos', 'Captura, fotos y exportar a Excel'],
   ['pendientes', 'Pendientes', 'Tareas por departamento'],
   ['compras', 'Compras', 'Lista de compras pendientes'],
@@ -607,8 +607,8 @@ VIEWS.cajones = () => {
 // ---------- LIMPIEZAS ----------
 VIEWS.limpiezas = () => {
   const cs = cleaners();
-  let h = `<div class="row"><h2 class="sp">Chicas</h2><button data-newcleaner="1">＋ Agregar</button></div><div class="card list">${S.t.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => `<div class="it"><span class="b n">${esc(c.key)}</span><div class="sp">${esc(c.name)}${c.active === false ? ' <span class="m">(inactiva)</span>' : ''}</div><button data-togcleaner="${esc(c.key)}">${c.active === false ? 'Activar' : 'Desactivar'}</button></div>`).join('')}</div>`;
-  h += `<h2>Descansos</h2><div class="card"><div class="row"><input type="date" id="offDate" value="${today()}"><select id="offK">${cs.map(c => `<option value="${c.key}">${esc(c.name)}</option>`).join('')}</select><button class="pri" data-addoff="1">Agregar</button></div>
+  let h = '';
+  h += `<h2 style="margin-top:0">Descansos</h2><div class="card"><div class="row"><input type="date" id="offDate" value="${today()}"><select id="offK">${cs.map(c => `<option value="${c.key}">${esc(c.name)}</option>`).join('')}</select><button class="pri" data-addoff="1">Agregar</button></div>
     <div class="list">${S.t.days_off.filter(o => o.date >= today()).sort((a, b) => a.date.localeCompare(b.date)).map(o => `<div class="it"><div class="sp">${fmt(o.date)} · ${esc(nombre(o.cleaner_key))}</div><button data-deloff="${o.date}|${o.cleaner_key}">Quitar</button></div>`).join('')}</div></div>`;
   h += `<h2>Tarifa por limpieza</h2><div class="card scroll"><table><tr><th>Depa</th>${cs.map(c => `<th class="r">${esc(c.name)}</th>`).join('')}</tr>`;
   for (const p of props()) h += `<tr><td class="dp">${esc(p.code)}</td>${cs.map(c => `<td class="r"><input type="number" inputmode="numeric" style="width:66px" data-rate="${esc(p.code)}|${c.key}" value="${rate(p.code, c.key) ?? ''}"></td>`).join('')}</tr>`;
@@ -783,6 +783,7 @@ VIEWS.supuestos = () => {
   h += '<h2>Cajones Qalina</h2><div class="card scroll"><table><tr><th>Depa</th><th>Tiene</th><th>Sótano</th><th>Presta</th></tr>';
   for (const p of [...props(), ...cajonesSueltos()].filter(p => p.building === 'Qalina')) h += `<tr><td class="dp">${esc(p.code)}</td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|has_parking" ${p.has_parking ? 'checked' : ''}></td><td><input type="number" style="width:60px" data-pp="${esc(p.code)}|parking_level" value="${p.parking_level ?? ''}"></td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|lends_parking" ${p.lends_parking ? 'checked' : ''}></td></tr>`;
   h += '</table></div>';
+  h += `<div class="row"><h2 class="sp">Chicas</h2><button data-newcleaner="1">＋ Agregar</button></div><div class="card list">${S.t.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => `<div class="it"><span class="b n">${esc(c.key)}</span><div class="sp">${esc(c.name)}${c.active === false ? ' <span class="m">(inactiva)</span>' : ''}</div><button data-togcleaner="${esc(c.key)}">${c.active === false ? 'Activar' : 'Desactivar'}</button></div>`).join('')}</div>`;
   h += `<h2>Limpieza a cargo de MGM</h2><div class="card"><div class="m" style="margin-bottom:6px">Desmarca los depas cuya limpieza no hacemos: no pedirán asignar chica ni entran a nómina.</div><div class="chips">${props().map(p => `<label class="chip ${p.cleaning !== false ? 'on' : ''}"><input type="checkbox" class="chk" data-pp="${esc(p.code)}|cleaning" ${p.cleaning !== false ? 'checked' : ''}> ${esc(p.code)}</label>`).join('')}</div></div>`;
   h += `<div class="row"><h2 class="sp">Usuarios</h2><button data-newuser="1">＋ Agregar</button></div><div class="card list">${S.t.app_users.map(u => `<div class="it"><span class="avatar sm">${avatarHTML(u)}</span><div class="sp"><div>${esc(u.name || u.email)}</div><div class="m">${esc(u.email)} </div></div>${u.email.toLowerCase() === S.email.toLowerCase() ? '<span class="m">tú</span>' : `<select data-urole="${esc(u.email)}">${ROLE_OPTS.map(([v]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${v === 'superadmin' ? 'Superadmin' : v === 'socio' ? 'Socio' : 'Finanzas'}</option>`).join('')}</select><button data-deluser="${esc(u.email)}">Quitar</button>`}</div>`).join('')}</div>`;
   const be = setting('backup_emails', []);
