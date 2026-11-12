@@ -65,7 +65,7 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
           const bl = D.blocks.find(b => b.property_code === p.code && b.date_from <= d && d <= b.date_to);
           const xt = exm[p.code + '|' + d];
           if (bl && !noche && !sale && !xt) { row.getCell(c).value = 'N/A' + (bl.note ? ' · ' + bl.note : ''); row.getCell(c).font = { color: { argb: C.na } }; return; }
-          if (noche) { row.getCell(c).value = noche.checkin === d || i === 0 ? noche.guest : 'X'; row.getCell(c).font = { color: { argb: C.azul } }; }
+          if (noche) { row.getCell(c).value = noche.checkin === d ? noche.guest : 'X'; row.getCell(c).font = { color: { argb: C.azul } }; }
           let es = '';
           if (p.building === 'Qalina') {
             const pr = ls.find(r => r.checkin <= d && d < r.checkout);

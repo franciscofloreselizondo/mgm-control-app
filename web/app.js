@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '21';
+const APP_VER = '22';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -519,7 +519,7 @@ VIEWS.calendario = () => {
         const bl = bloqueado(p.code, d);
         const noche = rs.find(r => r.checkin <= d && d < r.checkout), sale = rs.find(r => r.checkout === d);
         if (bl && !noche && !sale && !exm[p.code + '|' + d]) { h += `<td class="ds na" colspan="4">N/A${bl.note ? ' · ' + esc(bl.note) : ''}</td>`; return; }
-        const oc = noche ? (noche.checkin === d || i === 0 ? esc(noche.guest) : 'X') : '';
+        const oc = noche ? (noche.checkin === d ? esc(noche.guest) : 'X') : '';
         let es = '';
         if (p.building === 'Qalina') {
           const pr = ls2.find(r => r.checkin <= d && d < r.checkout);
