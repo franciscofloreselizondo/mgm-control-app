@@ -124,6 +124,7 @@ const S = {
 };
 const esCajon = p => p.kind === 'cajon';
 const cajonesSueltos = () => S.t.properties.filter(p => p.active !== false && esCajon(p)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+const limpiaMGM = c => (prop(c) || {}).cleaning !== false;
 const props = () => S.t.properties.filter(p => p.active !== false && !esCajon(p)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
 const prop = c => S.t.properties.find(p => p.code === c);
 const isQ = c => (prop(c) || {}).building === 'Qalina';
@@ -365,7 +366,7 @@ function resForm(id, preset) {
         q && { k: 'car', label: '¿Trae auto?', type: 'select', options: [['no', 'No'], ['si', 'Sí']] },
         q && v.car === 'si' && p.has_parking && { type: 'note', html: `Usa el cajón del depa (sótano ${p.parking_level ?? '?'}).` },
         q && v.car === 'si' && !p.has_parking && { k: 'parking_from', label: 'Cajón prestado por', type: 'select', options: [['', '— por asignar —'], ...prestadores(v, r && r.id)] },
-        { k: 'cleaner_key', label: `Chica de limpieza (salida ${v.checkout ? fmt(v.checkout) : ''})`, type: 'select', options: cleanerOpts(v.property_code, v.checkout, v.cleaner_key) },
+        (limpiaMGM(v.property_code) || v.cleaner_key) && { k: 'cleaner_key', label: `Chica de limpieza (salida ${v.checkout ? fmt(v.checkout) : ''})`, type: 'select', options: cleanerOpts(v.property_code, v.checkout, v.cleaner_key) },
         isSuper() && { k: 'amount', label: 'Monto de la reserva (opcional)', type: 'number', ph: 'Se registra como ingreso' }
       ];
     },
@@ -417,7 +418,7 @@ function resCard(r) {
   const p = prop(r.property_code) || {}, q = p.building === 'Qalina';
   const tags = [];
   if (q) tags.push(r.has_car ? (p.has_parking ? 'Auto · cajón propio' : r.parking_from ? 'Auto · cajón de ' + r.parking_from : '<b style="color:var(--baja)">Auto · falta cajón</b>') : 'Sin auto');
-  tags.push(r.cleaner_key ? 'Limpia ' + esc(nombre(r.cleaner_key)) : '<b style="color:var(--baja)">Limpieza sin asignar</b>');
+  if (limpiaMGM(r.property_code) || r.cleaner_key) tags.push(r.cleaner_key ? 'Limpia ' + esc(nombre(r.cleaner_key)) : '<b style="color:var(--baja)">Limpieza sin asignar</b>');
   if (r.amount != null) tags.push(money(Number(r.amount)));
   return `<div class="card tap" data-res="${r.id}"><div class="row"><span class="dp">${esc(r.property_code)}</span><span>${esc(r.guest)}</span><span class="sp"></span>${r.status === 'cancelada' ? '<span class="b baja">CANCELADA</span>' : ''}</div>
     <div class="m">${fmt(r.checkin)} → ${fmt(r.checkout)} · ${Math.round((parse(r.checkout) - parse(r.checkin)) / 864e5)} noches</div><div class="m">${tags.join(' · ')}</div></div>`;
@@ -442,8 +443,8 @@ const fsel = (grp, k, opts) => `<select data-f="${grp}|${k}">${opts.map(o => { c
 function pendientes() {
   const hoy = today(), fin = add(hoy, 7);
   return {
-    limpiezas: [...activas().filter(r => r.checkout >= hoy && r.checkout <= fin && !r.cleaner_key).map(r => ({ id: r.id, dp: r.property_code, f: r.checkout, txt: 'Sale ' + r.guest + (entraMismoDia(r) ? ' · entra otro huésped ese día' : '') })),
-      ...S.t.cleanings.filter(x => x.date >= hoy && x.date <= fin && !x.cleaner_key).map(x => ({ id: x.id, extra: true, dp: x.property_code, f: x.date, txt: 'Limpieza extra' + (x.note ? ' · ' + x.note : '') }))].sort((a, b) => a.f.localeCompare(b.f)),
+    limpiezas: [...activas().filter(r => r.checkout >= hoy && r.checkout <= fin && !r.cleaner_key && limpiaMGM(r.property_code)).map(r => ({ id: r.id, dp: r.property_code, f: r.checkout, txt: 'Sale ' + r.guest + (entraMismoDia(r) ? ' · entra otro huésped ese día' : '') })),
+      ...S.t.cleanings.filter(x => x.date >= hoy && x.date <= fin && !x.cleaner_key && limpiaMGM(x.property_code)).map(x => ({ id: x.id, extra: true, dp: x.property_code, f: x.date, txt: 'Limpieza extra' + (x.note ? ' · ' + x.note : '') }))].sort((a, b) => a.f.localeCompare(b.f)),
     cajones: activas().filter(r => r.checkout > hoy && r.checkin <= fin && sinCajon(r)).sort((a, b) => a.checkin.localeCompare(b.checkin))
   };
 }
@@ -457,7 +458,7 @@ function sheetAsignar(id) {
 function sheetLista(titulo, rs, modo) {
   sheet(`<h3>${esc(titulo)}</h3>${rs.length ? rs.map(r => { const p = prop(r.property_code) || {};
     const car = p.building === 'Qalina' ? (r.has_car ? (p.has_parking ? 'Auto · cajón propio' : r.parking_from ? 'Auto · cajón de ' + r.parking_from : 'Auto · falta cajón') : 'Sin auto') : '';
-    return `<div class="card"><div class="row"><span class="dp">${esc(r.property_code)}</span><span>${esc(r.guest)}</span><span class="sp"></span><button data-editres="${r.id}">Editar</button></div><div class="m">${fmt(r.checkin)} → ${fmt(r.checkout)}${car ? ' · ' + car : ''}</div>${modo === 'sale' ? `<div class="m">Limpia: ${r.cleaner_key ? esc(nombre(r.cleaner_key)) : '<b style="color:var(--baja)">sin asignar</b>'}${entraMismoDia(r) ? ' · entra otro huésped hoy' : ''}</div>` : ''}</div>`; }).join('') : '<div class="empty">Nadie.</div>'}
+    return `<div class="card"><div class="row"><span class="dp">${esc(r.property_code)}</span><span>${esc(r.guest)}</span><span class="sp"></span><button data-editres="${r.id}">Editar</button></div><div class="m">${fmt(r.checkin)} → ${fmt(r.checkout)}${car ? ' · ' + car : ''}</div>${modo === 'sale' && (limpiaMGM(r.property_code) || r.cleaner_key) ? `<div class="m">Limpia: ${r.cleaner_key ? esc(nombre(r.cleaner_key)) : '<b style="color:var(--baja)">sin asignar</b>'}${entraMismoDia(r) ? ' · entra otro huésped hoy' : ''}</div>` : ''}</div>`; }).join('') : '<div class="empty">Nadie.</div>'}
     <div class="row" style="margin-top:10px"><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
 }
 const libres = d => { const occ = new Set(ocupadas(d).map(r => r.property_code)); return props().filter(p => !occ.has(p.code) && !bloqueado(p.code, d)); };
@@ -511,7 +512,7 @@ VIEWS.calendario = () => {
           else if (noche && noche.has_car === false) es = 'No';
         }
         const xt = exm[p.code + '|' + d];
-        const k = sale ? `<button class="k ${sale.cleaner_key ? '' : 'vacio'}" data-asig="${sale.id}">${esc(sale.cleaner_key || '+')}</button>` : xt ? `<button class="k ${xt.cleaner_key ? '' : 'vacio'}" data-extra="${xt.id}">${esc(xt.cleaner_key || '+')}</button>` : '';
+        const k = sale && !sale.cleaner_key && !limpiaMGM(p.code) ? '' : sale ? `<button class="k ${sale.cleaner_key ? '' : 'vacio'}" data-asig="${sale.id}">${esc(sale.cleaner_key || '+')}</button>` : xt ? `<button class="k ${xt.cleaner_key ? '' : 'vacio'}" data-extra="${xt.id}">${esc(xt.cleaner_key || '+')}</button>` : '';
         const c3 = sale ? esc(sale.guest) : xt ? '<span class="xl">Limpieza</span>' : '';
         h += `<td class="ds oc" ${noche ? `data-res="${noche.id}"` : ''}>${oc}</td><td class="es">${es}</td><td class="en" ${sale ? `data-res="${sale.id}"` : xt ? `data-extra="${xt.id}"` : ''}>${c3}</td><td>${k}</td>`;
       });
@@ -549,7 +550,7 @@ VIEWS.nomina = () => {
   const ini = S.semana;
   let h = `<div class="nav"><button data-wn="-1">‹</button><div class="d">${fmt(ini)} – ${fmt(add(ini, 6))}</div><button data-wn="1">›</button><button data-wn="0">Hoy</button></div>`;
   const all = cleaners().map(c => [c, nominaDe(c.key, ini)]);
-  const sinAsig = activas().filter(r => !r.cleaner_key && r.checkout >= ini && r.checkout < add(ini, 7)).length + S.t.cleanings.filter(x => !x.cleaner_key && x.date >= ini && x.date < add(ini, 7)).length;
+  const sinAsig = activas().filter(r => !r.cleaner_key && limpiaMGM(r.property_code) && r.checkout >= ini && r.checkout < add(ini, 7)).length + S.t.cleanings.filter(x => !x.cleaner_key && limpiaMGM(x.property_code) && x.date >= ini && x.date < add(ini, 7)).length;
   if (sinAsig) h += `<div class="warn">${sinAsig} limpieza(s) de esta semana sin chica asignada.</div>`;
   const tot = all.reduce((s, [, n]) => s + n.total, 0), pag = all.reduce((s, [, n]) => s + n.pagado, 0);
   h += `<div class="kpis"><div class="kpi"><div class="v">${money(tot)}</div><div class="l">Total semana</div></div><div class="kpi"><div class="v">${money(pag)}</div><div class="l">Pagado</div></div><div class="kpi ${tot - pag > 0 ? 'alert' : ''}"><div class="v">${money(tot - pag)}</div><div class="l">Por pagar</div></div></div>`;
@@ -782,6 +783,7 @@ VIEWS.supuestos = () => {
   h += '<h2>Cajones Qalina</h2><div class="card scroll"><table><tr><th>Depa</th><th>Tiene</th><th>Sótano</th><th>Presta</th></tr>';
   for (const p of [...props(), ...cajonesSueltos()].filter(p => p.building === 'Qalina')) h += `<tr><td class="dp">${esc(p.code)}</td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|has_parking" ${p.has_parking ? 'checked' : ''}></td><td><input type="number" style="width:60px" data-pp="${esc(p.code)}|parking_level" value="${p.parking_level ?? ''}"></td><td><input type="checkbox" class="chk" data-pp="${esc(p.code)}|lends_parking" ${p.lends_parking ? 'checked' : ''}></td></tr>`;
   h += '</table></div>';
+  h += `<h2>Limpieza a cargo de MGM</h2><div class="card"><div class="m" style="margin-bottom:6px">Desmarca los depas cuya limpieza no hacemos: no pedirán asignar chica ni entran a nómina.</div><div class="chips">${props().map(p => `<label class="chip ${p.cleaning !== false ? 'on' : ''}"><input type="checkbox" class="chk" data-pp="${esc(p.code)}|cleaning" ${p.cleaning !== false ? 'checked' : ''}> ${esc(p.code)}</label>`).join('')}</div></div>`;
   h += `<div class="row"><h2 class="sp">Usuarios</h2><button data-newuser="1">＋ Agregar</button></div><div class="card list">${S.t.app_users.map(u => `<div class="it"><span class="avatar sm">${avatarHTML(u)}</span><div class="sp"><div>${esc(u.name || u.email)}</div><div class="m">${esc(u.email)} </div></div>${u.email.toLowerCase() === S.email.toLowerCase() ? '<span class="m">tú</span>' : `<select data-urole="${esc(u.email)}">${ROLE_OPTS.map(([v]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${v === 'superadmin' ? 'Superadmin' : v === 'socio' ? 'Socio' : 'Finanzas'}</option>`).join('')}</select><button data-deluser="${esc(u.email)}">Quitar</button>`}</div>`).join('')}</div>`;
   const be = setting('backup_emails', []);
   h += `<h2>Respaldo diario</h2><div class="card"><div class="m">Todos los días a las 10:00 pm se envía un Excel con toda la operación (calendario, reservas, nómina, gastos e ingresos, pendientes, compras…) a estos correos, separados por coma:</div><input style="width:100%;margin:8px 0" data-backup="1" value="${esc((Array.isArray(be) ? be : []).join(', '))}"><div class="row"><span class="m sp">Las claves de puerta no se incluyen.</span><button data-expbackup="1">Descargar respaldo ahora</button></div></div>`;
