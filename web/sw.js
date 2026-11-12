@@ -1,5 +1,5 @@
 // Service worker: notificaciones push + caché básico del "cascarón" de la app.
-const CACHE = 'mgm-v7';
+const CACHE = 'mgm-v8';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'mgmx.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
