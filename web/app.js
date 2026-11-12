@@ -160,7 +160,7 @@ async function start() {
   if (!CFG.DEMO && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   if (!CFG.DEMO) { // actualización automática: al volver a la app revisa si hay versión nueva y recarga
     const chk = async () => { try { const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); const v = (await r.json()).v;
-      if (v && v !== APP_VER) { try { const rg = await navigator.serviceWorker?.getRegistration(); await rg?.update(); } catch (_) {} location.reload(); } } catch (_) {} };
+      if (v && v !== APP_VER && sessionStorage.getItem('mgm_rl') !== v) { sessionStorage.setItem('mgm_rl', v); try { const rg = await navigator.serviceWorker?.getRegistration(); await rg?.update(); } catch (_) {} location.reload(); } } catch (_) {} };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') chk(); });
     setInterval(chk, 10 * 60 * 1000); chk();
   }
