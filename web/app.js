@@ -31,9 +31,9 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '23';
+const APP_VER = '24';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
-  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings'];
+  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
   'Reparaciones menores', 'Pintura', 'Limpieza de muebles', 'Mantenimiento AC', 'Gas', 'Luz', 'Internet', 'Agua', 'Predial', 'Otro'];
 const CAT_INGRESO = ['Ingreso por reserva', 'Otros ingresos'];
@@ -99,7 +99,7 @@ function demoDB() {
     reset(examples) { T = seed(); fix(); if (examples && window.MGM_EXAMPLES) window.MGM_EXAMPLES(T, { today, add, uid, monday }); save(); },
     async session() { return { superadmin: 'maria@ejemplo.com', socio: 'mike@ejemplo.com', finanzas: 'sandy@ejemplo.com' }[role] || 'maria@ejemplo.com'; },
     onAuth() {}, async sendCode() { return null; }, async verifyCode() { return null; }, async google() { return null; }, logout() {},
-    async load(t) { return { rows: JSON.parse(JSON.stringify(T[t])) }; },
+    async load(t) { return { rows: JSON.parse(JSON.stringify(T[t] || (T[t] = []))) }; },
     async insert(t, row) { T[t].push({ ...row }); save(); return null; },
     async update(t, match, patch) { T[t].forEach(r => { if (hit(r, match)) Object.assign(r, patch); }); save(); return null; },
     async remove(t, match) { T[t] = T[t].filter(r => !hit(r, match)); save(); return null; },
@@ -224,6 +224,7 @@ const MENU = [
   ['compras', 'Compras', 'Lista de compras pendientes'],
   ['claves', 'Claves', 'Claves de puerta, bodega y caja fuerte'],
   ['ligas', 'Ligas Airbnb', 'Liga de cada anuncio para copiar'],
+  ['pnl', 'P&L (Beta)', 'Reportes por depa y para dueños · solo María y Paco'],
   ['supuestos', 'Supuestos', 'Chicas, cajones, bono, usuarios']
 ];
 const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · calendario, pendientes, compras, claves y ligas', finanzas: 'Finanzas · solo gastos e ingresos' };
@@ -610,7 +611,7 @@ function pagoForm(k) { const N = nominaDe(k, S.semana); openForm({ title: 'Pago 
   save: async v => { if (!v.date) return 'Falta la fecha.'; if (!(Number(v.amount) > 0)) return 'El monto debe ser mayor a cero.'; ins('payroll_payments', { id: uid(), cleaner_key: k, week_start: S.semana, date: v.date, amount: Number(v.amount), method: v.method, note: v.note || null }, 'Pago registrado'); } }); }
 
 // ---------- MENÚ ----------
-VIEWS.menu = () => `<div class="menu">${MENU.map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
+VIEWS.menu = () => `<div class="menu">${MENU.filter(m => m[0] !== 'pnl' || isSuper()).map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
 
 // ---------- CAJONES QALINA ----------
 VIEWS.cajones = () => {
@@ -793,6 +794,76 @@ VIEWS.claves = () => {
   return `<div class="m" style="margin-bottom:8px">Se guardan al salir de cada campo.</div><div class="card scroll"><table><tr><th>Lugar</th><th>Clave 1</th><th>Clave 2</th></tr>${places.map(pl => { const c = S.t.access_codes.find(x => x.place === pl) || {};
     return `<tr><td class="dp">${esc(pl)}</td><td><input class="code" data-code="${esc(pl)}|code1" value="${esc(c.code1 || '')}" autocomplete="off"></td><td><input class="code" data-code="${esc(pl)}|code2" value="${esc(c.code2 || '')}" autocomplete="off"></td></tr>`; }).join('')}</table></div>`;
 };
+// ---------- P&L (Beta): análisis + cuestionario para María (solo superadmin) ----------
+const PNLQ = [
+  ['Decisiones clave', [
+    { id: 'ingreso', q: '¿En qué mes cuenta el ingreso de una reserva?', help: 'Hoy el Excel usa la fecha en que Airbnb paga. Lo estándar en STR es contar las noches ocupadas dentro de cada mes.', opts: ['Por fecha de payout (como hoy)', 'Por noches ocupadas en el mes (estándar)', 'No estoy segura, explícame'] },
+    { id: 'imp8', q: '¿Qué es el 8% que se descuenta para llegar a la Utilidad Neta?', help: 'En el P&L de Q-104 se aplica desde junio: Utilidad neta = Utilidad antes de impuestos − 8%.', opts: ['ISR del dueño', 'Otro concepto (explícalo abajo)', 'No sé'], ask: '¿Aplica igual en todos los depas?' },
+    { id: 'gestion', q: '¿Qué % de gestión administrativa cobra MGM?', help: 'En Q-104 es 15% sobre ingresos por reservas.', opts: ['15% en todos los depas', 'Varía por depa (anota cuál abajo)'] },
+    { id: 'envio', q: '¿Cómo se entrega el PDF a cada dueño?', opts: ['María lo revisa y lo manda', 'Se envía solo a cada dueño', 'Se envía solo, con copia a María'] }
+  ]],
+  ['Datos de Airbnb', [
+    { id: 'captura', q: '¿Cómo prefieres cargar los pagos de Airbnb?', help: 'Por reserva se necesita: código HM…, monto bruto, limpieza cobrada, comisión Airbnb, impuestos liquidados, retención ISR, retención IVA, payout neto y fecha de payout.', opts: ['Subir cada mes el CSV de transacciones de Airbnb (recomendado)', 'Captura manual por reserva', 'Las dos'] },
+    { id: 'ocup', q: '¿De dónde sale el % de ocupación?', help: 'Ojo: junio dice 96% (Airbnb) pero calculado desde reservas da 57%.', opts: ['Calculado desde las reservas de la app', 'Dato de Airbnb capturado a mano'] },
+    { id: 'tarifa', q: '¿De dónde sale la tarifa promedio por noche?', opts: ['Calculada: ingreso ÷ noches', 'Dato de Airbnb capturado a mano'] },
+    { id: 'resenas', q: '¿Cómo armamos la Evaluación de desempeño?', opts: ['Estrellas por reserva capturadas en la app', 'Subir las capturas de Airbnb del mes', 'Las dos', 'No incluirla'] }
+  ]],
+  ['Cobros al dueño', [
+    { id: 'limpieza', q: 'Limpieza: ¿cuánto se le cobra al dueño por cada salida?', help: 'Q-104 octubre: 6 limpiezas × $500 = $3,000.', opts: ['Mismo monto en todos los depas', 'Varía por depa (anota abajo)'] },
+    { id: 'lavanderia', q: 'Lavandería: ¿cómo se cobra?', help: 'Q-104: $200 por limpieza de junio a septiembre y $100 en octubre.', opts: ['Monto fijo por limpieza', 'Lo que se pague real en el mes', 'Varía por depa'] },
+    { id: 'otros', q: 'Otros ingresos (ej. renta de estacionamiento $580): ¿qué depas los tienen y son fijos cada mes?', text: true },
+    { id: 'liquida', q: '¿Registramos la transferencia de la utilidad al dueño (monto, fecha, referencia)?', opts: ['Sí, como estado de cuenta', 'No es necesario'] },
+    { id: 'recurrentes', q: '¿Qué gastos son fijos cada mes por depa (internet, gas, etc.)?', text: true }
+  ]],
+  ['Dueños', [
+    { id: 'duenos', q: 'Anota por depa: dueño y correo (un depa por línea).', help: 'Ej.: Q-104 – Nombre del dueño – correo@dominio.com', text: true, rows: 6 }
+  ]],
+  ['Cortes por correo', [
+    { id: 'semanal', q: 'Corte semanal para ti: ¿cuándo te llega?', opts: ['Lunes 8:00 am', 'Domingo 8:00 pm', 'Otro (anota abajo)'], ask: '¿Qué quieres ver en el corte semanal?' },
+    { id: 'mensual', q: 'Corte mensual del portafolio: ¿qué día?', opts: ['Día 1', 'Día 3 (da tiempo de capturar gastos)', 'Día 5', 'Otro'] }
+  ]],
+  ['Elementos sugeridos (estándar STR)', [
+    { id: 'extras', q: 'Marca los que quieres en el reporte al dueño:', multi: ['RevPAR (ingreso por noche disponible)', 'Estancia promedio', 'Anticipación de reserva', 'Costo de limpieza por salida', 'Comparativo vs mes anterior', 'Comparativo vs mismo mes año anterior', 'Reservas confirmadas del mes siguiente', 'Calificación promedio', 'Estado de cuenta / liquidación', 'Canal de reserva (Airbnb, directo…)'] }
+  ]]
+];
+const PNL_HALLAZGOS = [
+  'El total de gastos no cuadra en el PDF: arriba $40,527 y abajo $40,498. La diferencia ($29) es "Gastos por inversión", que suma al total pero su sección no aparece.',
+  'La fila "Mantenimiento AA" de enero suma la categoría "Pintura".',
+  '"Otro" se suma dos veces: en Limpieza y en Mantenimiento.',
+  'En la gráfica "Días libres vs rentados" las etiquetas están invertidas (junio: 17 libres / 13 rentados con 57% de ocupación) y el total da −58.',
+  'La ocupación de Airbnb (96% junio) no coincide con la calculada desde reservas (57%).'
+];
+const pnlRow = () => S.t.pnl_beta.find(r => r.id === 'respuestas') || { id: 'respuestas', data: {} };
+const pnlPreg = () => S.t.pnl_beta.filter(r => r.id !== 'respuestas').sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+function pnlSet(k, v) { const r = pnlRow(); return ups('pnl_beta', { id: 'respuestas', data: { ...r.data, [k]: v }, updated_by: S.email, updated_at: new Date().toISOString() }, ['id'], 'Respuesta guardada'); }
+VIEWS.pnl = () => {
+  if (!isSuper()) return '<div class="empty">Solo María y Paco.</div>';
+  const A = pnlRow().data || {}, all = PNLQ.flatMap(s => s[1]);
+  const hechas = all.filter(q => q.multi ? (A[q.id] || []).length : A[q.id]).length;
+  let h = `<div class="card" style="border-left:4px solid var(--copper,#b0703c)"><div class="row"><b class="sp">P&L (Beta)</b><span class="b">${hechas}/${all.length} respondidas</span></div>
+    <div class="m" style="margin-top:6px">Estudié el P&L de Q-104 (octubre). Antes de construir el módulo necesito tus respuestas. Se guardan solas; cuando termines, avísale a Paco para que yo las revise y te haga más preguntas o arme la primera versión.</div>
+    <div class="m" style="margin-top:6px">Lo que vamos a construir: <b>1)</b> consulta diaria del P&L por depa y del portafolio, <b>2)</b> corte semanal por correo para ti, <b>3)</b> corte mensual del portafolio y <b>4)</b> un PDF por depa para el dueño, con el look de las propuestas MGM, conservando todo lo que tiene hoy el reporte.</div>
+    ${A.updated_by ? '' : ''}</div>`;
+  h += `<details class="card"><summary><b>Lo que ya tiene la app y lo que falta</b></summary>
+    <div class="m" style="margin-top:8px"><b>Ya lo tenemos:</b> reservas (depa, huésped, fechas, noches), bloqueos N/A, gastos con categoría y fotos, ingresos, limpiezas hechas por depa. Con eso salen solos: ocupación, noches promedio, días libres vs rentados y comprobantes.</div>
+    <div class="m" style="margin-top:6px"><b>Falta capturar:</b> datos de pago de Airbnb por reserva, % de gestión e impuesto por depa, dueño y correo, tarifas de limpieza y lavandería al dueño, ajustes y reembolsos negativos, categoría "Muebles", grupo para "Otro", calificaciones, gastos recurrentes y liquidación al dueño.</div></details>`;
+  h += `<details class="card"><summary><b>Errores que encontré en el Excel actual (${PNL_HALLAZGOS.length})</b></summary>${PNL_HALLAZGOS.map(x => `<div class="m" style="margin-top:6px">• ${esc(x)}</div>`).join('')}</details>`;
+  for (const [sec, qs] of PNLQ) {
+    h += `<h2>${esc(sec)}</h2>`;
+    for (const q of qs) {
+      const v = A[q.id];
+      h += `<div class="card"><div class="dp" style="font-size:15px">${esc(q.q)}</div>${q.help ? `<div class="m" style="margin-top:4px">${esc(q.help)}</div>` : ''}`;
+      if (q.opts) h += `<div class="chips" style="margin-top:8px">${q.opts.map(o => `<label class="chip ${v === o ? 'on' : ''}"><input type="radio" name="pq-${q.id}" data-pq="${q.id}" value="${esc(o)}" ${v === o ? 'checked' : ''} hidden>${esc(o)}</label>`).join('')}</div>`;
+      if (q.multi) { const sel = v || []; h += `<div class="chips" style="margin-top:8px">${q.multi.map(o => `<label class="chip ${sel.includes(o) ? 'on' : ''}"><input type="checkbox" data-pqm="${q.id}" value="${esc(o)}" ${sel.includes(o) ? 'checked' : ''} hidden>${esc(o)}</label>`).join('')}</div>`; }
+      if (q.text) h += `<textarea style="width:100%;margin-top:8px" rows="${q.rows || 3}" data-pqt="${q.id}" placeholder="Escribe aquí…">${esc(v || '')}</textarea>`;
+      else h += `<textarea style="width:100%;margin-top:8px" rows="2" data-pqt="${q.id}_c" placeholder="${esc(q.ask || 'Comentario (opcional)')}">${esc(A[q.id + '_c'] || '')}</textarea>`;
+      h += `</div>`;
+    }
+  }
+  h += `<h2>Tus preguntas para Claude</h2><div class="card"><textarea id="pnlQ" style="width:100%" rows="3" placeholder="¿Algo no está claro o quieres agregar algo al reporte? Escríbelo aquí."></textarea><div class="row" style="margin-top:8px"><span class="sp"></span><button class="pri" data-pnlq="1">Agregar pregunta</button></div></div>`;
+  h += pnlPreg().map(p => `<div class="card"><div class="m">${esc(p.updated_by || '')} · ${esc(fmt((p.updated_at || '').slice(0, 10)))}</div><div style="margin-top:4px;white-space:pre-wrap">${esc(p.data.texto)}</div>${p.data.respuesta ? `<div class="m" style="margin-top:8px;border-left:3px solid var(--acc);padding-left:8px;white-space:pre-wrap"><b>Respuesta:</b> ${esc(p.data.respuesta)}</div>` : '<div class="m" style="margin-top:6px">Pendiente de respuesta</div>'}<div class="row" style="margin-top:6px"><span class="sp"></span><button data-pnldel="${p.id}">Borrar</button></div></div>`).join('');
+  return h;
+};
 VIEWS.ligas = () => props().map(p => `<div class="card"><div class="row"><span class="dp">${esc(p.code)}</span><span class="sp"></span>${p.airbnb_url ? `<a href="${esc(p.airbnb_url)}" target="_blank" rel="noopener">Abrir</a>` : ''}<button class="${p.airbnb_url ? 'pri' : ''}" data-copyurl="${esc(p.code)}" ${p.airbnb_url ? '' : 'disabled'}>Copiar</button></div><input style="width:100%;margin-top:8px" type="url" inputmode="url" placeholder="https://airbnb.mx/h/…" data-url="${esc(p.code)}" value="${esc(p.airbnb_url || '')}"></div>`).join('');
 
 // ---------- PERFIL ----------
@@ -858,6 +929,8 @@ $('view').addEventListener('click', async e => {
   if (d.hoy) { const t = today(), a = activas(); return d.hoy === 'sale' ? sheetLista('Salen hoy', a.filter(r => r.checkout === t), 'sale') : d.hoy === 'entra' ? sheetLista('Entran hoy', a.filter(r => r.checkin === t)) : d.hoy === 'libre' ? sheetLibres(t) : sheetLista('Ocupados esta noche', ocupadas(t)); }
   if (d.cm) { const n = +d.cm; if (!n) { S.calMes = today().slice(0, 7); S.calScroll = true; } else { const [y, m] = S.calMes.split('-').map(Number); const x = new Date(y, m - 1 + n, 1); S.calMes = x.getFullYear() + '-' + pad(x.getMonth() + 1); } return render(); }
   if (d.undo) return deshacer();
+  if (d.pnlq) { const x = $('pnlQ').value.trim(); if (!x) return toast('Escribe tu pregunta'); return ins('pnl_beta', { id: uid(), data: { texto: x }, updated_by: S.email, updated_at: new Date().toISOString() }, 'Pregunta enviada'); }
+  if (d.pnldel) return del('pnl_beta', { id: d.pnldel }, 'Pregunta borrada');
   if (d.zoom) { S.zoom = Math.min(1.4, Math.max(0.3, Math.round((S.zoom + 0.1 * +d.zoom) * 10) / 10)); ls.set('mgm-zoom', S.zoom); return render(); }
   if (d.dn) { S.dia = +d.dn ? add(S.dia, +d.dn) : today(); return render(); }
   if (d.wn) { S.semana = +d.wn ? add(S.semana, 7 * +d.wn) : monday(today()); return render(); }
@@ -884,6 +957,9 @@ $('view').addEventListener('click', async e => {
 $('view').addEventListener('change', e => {
   const t = e.target, d = t.dataset;
   if (d.f) { const [g, k] = d.f.split('|'); S.f[g][k] = t.value; return render(); }
+  if (d.pq) return pnlSet(d.pq, t.value);
+  if (d.pqm) { const cur = new Set(pnlRow().data[d.pqm] || []); t.checked ? cur.add(t.value) : cur.delete(t.value); return pnlSet(d.pqm, [...cur]); }
+  if (d.pqt) return pnlSet(d.pqt, t.value);
   if (d.chk) { const [tb, id, f] = d.chk.split('|'); return upd(tb, { id }, { [f]: t.checked }); }
   if (d.caj !== undefined) return upd('reservations', { id: d.caj }, { parking_from: t.value || null });
   if (d.rate) { const [p, k] = d.rate.split('|'); return t.value === '' ? del('cleaning_rates', { property_code: p, cleaner_key: k }) : ups('cleaning_rates', { property_code: p, cleaner_key: k, amount: Number(t.value) }, ['property_code', 'cleaner_key'], 'Tarifa guardada'); }
