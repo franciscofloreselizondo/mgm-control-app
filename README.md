@@ -37,7 +37,7 @@ Ya **no** se necesita llave de Anthropic ni script en Gmail.
 ## Instalación
 1. **Supabase**: crear proyecto → SQL Editor → ejecutar en orden `supabase/migrations/001_schema.sql`, `002_seed.sql`
    (depas, chicas, tarifas y cajones del Excel) y `003_usuarios.sql` (cambiar antes los correos de María, Mike y Sandy).
-   Después `005_precarga.sql` (no está en el repo: contiene huéspedes y claves; se pega directo en el SQL Editor): reservas, limpiezas y descansos del Excel (27 jul 2026 – 3 ene 2027), los 18 pendientes abiertos y las claves.
+   Después `005_precarga.sql`: reservas, limpiezas y descansos del Excel (27 jul 2026 – 3 ene 2027), los 18 pendientes abiertos y las claves.
 2. Authentication → URL Configuration → Site URL = URL de GitHub Pages (y agregarla en Redirect URLs).
    - **Código por correo**: Authentication → Emails → plantilla "Magic Link": incluir `{{ .Token }}` en el texto
      (ej. "Tu código es {{ .Token }}") para que llegue el código además del enlace.
