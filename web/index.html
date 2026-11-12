@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f5f1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MGM Control App">
+<title>MGM Control App</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@1,600;1,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="login" class="login" hidden>
+    <div class="brand">MGM<span>Control App</span></div>
+    <button id="btnGoogle" class="big gbtn" type="button"><svg viewBox="0 0 48 48" width="20" height="20"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.400 13.600 17.700 9.500 24 9.500z"/><path fill="#4285F4" d="M46.500 24.500c0-1.600-.100-3.100-.400-4.500H24v9h12.700c-.600 3-2.300 5.500-4.800 7.200l7.600 5.900c4.500-4.100 7-10.200 7-17.600z"/><path fill="#FBBC05" d="M10.500 28.700A14.500 14.500 0 0 1 9.700 24c0-1.600.300-3.200.800-4.700l-7.900-6.100A24 24 0 0 0 0 24c0 3.900.900 7.500 2.600 10.800l7.900-6.100z"/><path fill="#34A853" d="M24 48c6.500 0 11.900-2.100 15.900-5.800l-7.600-5.900c-2.100 1.400-4.900 2.300-8.300 2.300-6.300 0-11.600-4.200-13.500-9.900l-7.900 6.100C6.500 42.600 14.600 48 24 48z"/></svg> Continuar con Google</button>
+    <div class="or">o con un código a tu correo</div>
+    <form id="loginForm"><input id="email" type="email" required placeholder="tu@correo.com" autocomplete="email"><button class="pri">Enviar código</button></form>
+    <form id="codeForm" hidden><input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" maxlength="8" required placeholder="Código"><button class="pri">Entrar</button></form>
+    <div id="loginMsg" class="m"></div>
+  </div>
+
+  <div id="shell" hidden>
+    <div id="demobar" class="demo" hidden></div>
+    <header class="bar"><button id="logo" class="logo" title="Ir a Hoy">MGM</button><button id="back" class="back" hidden>‹ Menú</button><div class="title" id="title">Reservas</div><span class="sp"></span><div class="live" id="live" title="Conexión">●</div><button id="avatar" class="avatar" title="Mi perfil">M</button><button id="salir" class="iconbtn" title="Cerrar sesión"><svg viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l4-4-4-4M14 12H4"/></svg></button></header>
+    <main id="view"></main>
+    <nav class="tabbar" id="tabbar">
+      <button data-t="hoy"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Hoy</span><i id="badge" hidden></i></button>
+      <button data-t="reservas"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg><span>Reservas</span></button>
+      <button data-t="calendario"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Calendario</span></button>
+      <button data-t="nomina"><svg viewBox="0 0 24 24"><path d="M12 3v18M17 7H9.5a3 3 0 0 0 0 6h5a3 3 0 0 1 0 6H6"/></svg><span>Nómina</span></button>
+      <button data-t="menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menú</span></button>
+    </nav>
+    <div id="sheet" class="sheet" hidden></div>
+    <div id="viewer" class="viewer" hidden><img id="viewerImg" alt=""></div>
+    <div id="toast" class="toast" hidden></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="mgmx.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

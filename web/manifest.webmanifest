@@ -1,0 +1,2 @@
+{"name":"MGM Control App","short_name":"MGM Control","start_url":"./#hoy","scope":"./","display":"standalone","background_color":"#f7f5f1","theme_color":"#2f4f43","lang":"es-MX",
+ "icons":[{"src":"icons/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"icons/icon-512.png","sizes":"512x512","type":"image/png"},{"src":"icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}]}

@@ -1,0 +1,6 @@
+.env
+supabase/.temp
+.DS_Store
+# datos operativos (huéspedes, claves): se ejecutan directo en Supabase, nunca en el repo
+supabase/migrations/005_precarga.sql
+*.xlsx
