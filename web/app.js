@@ -217,6 +217,25 @@ function allowed(tab) { const acc = ACCESS[S.me.role] || ACCESS.superadmin; retu
 const TITLES = { perfil: 'Mi perfil', reservas: 'Reservas', hoy: 'Hoy', calendario: 'Calendario', nomina: 'Nómina', menu: 'Menú', ...Object.fromEntries(MENU.map(m => [m[0], m[1]])) };
 const VIEWS = {};
 function go(tab) { S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; render(); }
+// Congela los controles de arriba (botones, filtros, navegación) de cada pestaña
+function fijarCabecera() {
+  const v = $('view'); if (!v || v.querySelector('.calhead')) return;
+  const stop = el => el.tagName === 'H2' || el.matches('.card,.kpis,.menu,.err,.list,.calwrap,.cal,.menu-foot,table');
+  const lead = []; for (const el of v.children) { if (stop(el)) break; lead.push(el); }
+  if (!lead.length || !lead.some(el => el.matches('button,select,input') || el.querySelector('button,select,input'))) return;
+  const w = document.createElement('div'); w.className = 'calhead vhead'; v.insertBefore(w, lead[0]); lead.forEach(el => w.appendChild(el));
+}
+// Flechita para saltar arriba / abajo
+function initJump() {
+  const b = document.createElement('button'); b.id = 'jump'; b.className = 'jump'; b.hidden = true; b.setAttribute('aria-label', 'Ir arriba o abajo');
+  b.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>'; document.body.appendChild(b);
+  const upd = () => { const max = document.documentElement.scrollHeight - innerHeight; const show = max > innerHeight * 0.6 && !$('shell')?.hidden;
+    b.hidden = !show; const up = scrollY > max / 2; b.classList.toggle('up', up); b.dataset.dir = up ? 'up' : 'down'; };
+  addEventListener('scroll', upd, { passive: true }); addEventListener('resize', upd);
+  new MutationObserver(() => requestAnimationFrame(upd)).observe($('view'), { childList: true });
+  b.onclick = () => scrollTo({ top: b.dataset.dir === 'up' ? 0 : document.documentElement.scrollHeight, behavior: 'smooth' });
+  upd();
+}
 function renderLive() { const l = $('live'); l.className = 'live' + (S.live ? '' : ' off'); }
 function render() {
   if (!S.email) return;
@@ -234,6 +253,7 @@ function render() {
   const P = isSuper() ? pendientes() : { limpiezas: [], cajones: [] }; const n = P.limpiezas.length + P.cajones.length;
   if ($('badge')) { $('badge').hidden = !n; $('badge').textContent = n; }
   $('view').innerHTML = VIEWS[S.tab]();
+  fijarCabecera();
   { const rs = document.documentElement.style, bar = document.querySelector('.bar'), ch = document.querySelector('.calhead');
     if (bar) rs.setProperty('--barh', bar.offsetHeight + 'px'); if (ch) rs.setProperty('--calh', ch.offsetHeight + 'px'); }
   if (S.calScroll && S.tab === 'calendario') { S.calScroll = false; const el = $('semhoy'); if (el) el.scrollIntoView({ block: 'start' }); }
@@ -846,5 +866,6 @@ if (CFG.DEMO) {
   $('demoVac').addEventListener('click', e => { if (!confirmTap(e.target)) return; DB.reset(false); again(); toast('Datos del Excel restaurados'); });
 }
 
+initJump();
 start();
 })();
