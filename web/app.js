@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '35';
+const APP_VER = '36';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -250,7 +250,7 @@ function setupTabbar() {
 function allowed(tab) { const acc = ACCESS[S.me.role] || ACCESS.superadmin; return tab === 'perfil' || !acc.bar || acc.bar.some(b => b[0] === tab) || tab === acc.home; }
 const TITLES = { perfil: 'Mi perfil', reservas: 'Reservas', cajones: 'Cajones Qalina', hoy: 'Hoy', calendario: 'Calendario', nomina: 'Nómina', menu: 'Menú', ...Object.fromEntries(MENU.map(m => [m[0], m[1]])) };
 const VIEWS = {};
-function go(tab) { S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; if (tab === 'servicios') { S.servScroll = true; const pm = mesAnt(); if (S.f.serv) S.f.serv.y = pm.slice(0, 4); } render(); }
+function go(tab) { S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; if (tab === 'servicios') { S.servScroll = true; const pm = mesAnt(); if (S.f.serv) { S.f.serv.y = pm.slice(0, 4); S.f.serv.m = pm.slice(5); } } render(); }
 // Congela los controles de arriba (botones, filtros, navegación) de cada pestaña
 function fijarCabecera() {
   const v = $('view'); if (!v || v.querySelector('.calhead')) return;
@@ -274,7 +274,8 @@ function initJump() {
 const mesAnt = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return ymd(d).slice(0, 7); };
 // Pagos de servicios: abre con la columna del mes anterior pegada a la columna de depa
 function irAMesAnt() {
-  const box = document.querySelector('#view .scroll'), th = box && box.querySelector('th[data-per="' + mesAnt() + '"]'), dpc = box && box.querySelector('th.dpc');
+  const sel = S.f.serv ? S.f.serv.y + '-' + (S.f.serv.m || mesAnt().slice(5)) : mesAnt();
+  const box = document.querySelector('#view .scroll'), th = box && box.querySelector('th[data-per="' + sel + '"]'), dpc = box && box.querySelector('th.dpc');
   if (!th || !dpc) return; box.scrollLeft = 0; box.scrollLeft = th.getBoundingClientRect().left - dpc.getBoundingClientRect().right;
 }
 function irAHoy() {
@@ -965,10 +966,10 @@ function syncServicio(pay) {
 }
 VIEWS.servicios = () => {
   if (S.falta && (S.falta.has('service_accounts') || S.falta.has('service_payments'))) return '<div class="card m">El módulo se activa en cuanto Paco termine de crear las tablas y cargar el histórico del Excel.</div>';
-  const F = S.f.serv || (S.f.serv = { s: 'luz', y: mesAnt().slice(0, 4), q: '', solo: '' }), mesHoy = today().slice(0, 7);
+  const F = S.f.serv || (S.f.serv = { s: 'luz', y: mesAnt().slice(0, 4), m: mesAnt().slice(5), q: '', solo: '' }), mesHoy = F.y + '-' + (F.m || mesAnt().slice(5));
   let h = `<div class="seg" style="margin-bottom:8px;overflow-x:auto;white-space:nowrap">${SERV.map(([k, l]) => `<button data-servs="${k}" class="${F.s === k ? 'on' : ''}">${l.split(' ')[0]}</button>`).join('')}</div>
-    <div class="nav"><button data-servy="-1">‹</button><div class="d">${F.y}</div><button data-servy="1">›</button><button data-servx="1">Excel</button></div>
-    <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro este mes</option><option value="pend" ${F.solo === 'pend' ? 'selected' : ''}>Con pendientes</option><option value="pagmes" ${F.solo === 'pagmes' ? 'selected' : ''}>Pagados este mes</option><option value="paganio" ${F.solo === 'paganio' ? 'selected' : ''}>Con pagos en el año</option></select></div>
+    <div class="nav"><button data-servy="-1">‹</button><div class="d">${F.y}</div><button data-servy="1">›</button><select data-servm="1" style="flex:1">${MES3.map((m, i) => { const v = String(i + 1).padStart(2, '0'); return `<option value="${v}" ${mesHoy.slice(5) === v ? 'selected' : ''}>${['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][i]}</option>`; }).join('')}</select><button data-servx="1">Excel</button></div>
+    <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro en el mes</option><option value="pend" ${F.solo === 'pend' ? 'selected' : ''}>Con pendientes</option><option value="pagmes" ${F.solo === 'pagmes' ? 'selected' : ''}>Pagados en el mes</option><option value="paganio" ${F.solo === 'paganio' ? 'selected' : ''}>Con pagos en el año</option></select></div>
     <div class="row" style="gap:8px;margin-bottom:10px"><button class="pri sp" data-servpay="">＋ Registrar pago</button><button data-servacc="">＋ Cuenta</button><button data-servedit="1" class="${F.edit ? 'on pri' : ''}">${F.edit ? 'Listo' : 'Ocultar'}</button></div>`;
   const OC = new Set(setting('serv_ocultos', []));
   let A = sAcc().filter(a => a.service === F.s && a.active !== false);
@@ -984,7 +985,7 @@ VIEWS.servicios = () => {
   const pagMes = A.reduce((t, a) => { const p = sPay(a.id, mesHoy); return t + (p && p.status === 'pagado' ? Number(p.amount) || 0 : 0); }, 0);
   const pagAnio = A.reduce((t, a) => t + (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0), 0);
   const pend = A.reduce((t, a) => t + pendientesDe(a, F.y).length, 0);
-  h += `<div class="kpis"><button class="kpi ${F.solo === 'pagmes' ? 'sel' : ''}" data-servk="pagmes"><div class="v">${money(pagMes)}</div><div class="l">Pagado ${MES3[+mesHoy.slice(5) - 1].toLowerCase()} ›</div></button><button class="kpi ${F.solo === 'paganio' ? 'sel' : ''}" data-servk="paganio"><div class="v">${money(pagAnio)}</div><div class="l">Pagado ${F.y} ›</div></button><button class="kpi ${pend ? 'alert' : ''} ${F.solo === 'pend' ? 'sel' : ''}" data-servpend="1"><div class="v">${pend}</div><div class="l">Pendientes ›</div></button></div>`;
+  h += `<div class="kpis"><button class="kpi ${F.solo === 'pagmes' ? 'sel' : ''}" data-servk="pagmes"><div class="v">${money(Math.round(pagMes))}</div><div class="l">Pagado ${MES3[+mesHoy.slice(5) - 1].toLowerCase()} ›</div></button><button class="kpi ${F.solo === 'paganio' ? 'sel' : ''}" data-servk="paganio"><div class="v">${money(Math.round(pagAnio))}</div><div class="l">Pagado ${F.y} ›</div></button><button class="kpi ${pend ? 'alert' : ''} ${F.solo === 'pend' ? 'sel' : ''}" data-servpend="1"><div class="v">${pend}</div><div class="l">Pendientes ›</div></button></div>`;
   if (F.edit) h += `<div class="warn" style="margin-bottom:8px">Toca el ojo de cada depa para ocultarlo o mostrarlo en ${esc(SERV.find(x => x[0] === F.s)[1])}. Al terminar toca <b>Listo</b>.</div>`;
   else if (nOc) h += `<div class="row" style="margin-bottom:6px"><span class="m sp">${nOc} depa(s) oculto(s) en esta pestaña</span><button data-servedit="1">Ver / editar</button></div>`;
   if (!A.length) return h + '<div class="card empty">Sin cuentas.</div>';
@@ -1201,6 +1202,7 @@ $('view').addEventListener('change', e => {
     C[k] = { ...C[k], team: [...T] }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Equipo actualizado'); }
   if (d.supmonto) { const C = { ...supConf() }; C[d.supmonto] = { ...C[d.supmonto], monto: Number(t.value) || 0 }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Monto guardado'); }
   if (d.supnew !== undefined) { if (!t.value) return; const C = { ...supConf(), [t.value]: { team: [], monto: 30 } }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Supervisora agregada'); }
+  if (d.servm) { S.f.serv.m = t.value; S.servScroll = true; return render(); }
   if (t.id === 'servQ') { S.f.serv.q = t.value.trim(); return render(); }
   if (d.pq) return pnlSet(d.pq, t.value);
   if (d.pqm) { const cur = new Set(pnlRow().data[d.pqm] || []); t.checked ? cur.add(t.value) : cur.delete(t.value); return pnlSet(d.pqm, [...cur]); }
