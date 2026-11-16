@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '31';
+const APP_VER = '32';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -969,8 +969,11 @@ VIEWS.servicios = () => {
   let h = `<div class="seg" style="margin-bottom:8px;overflow-x:auto;white-space:nowrap">${SERV.map(([k, l]) => `<button data-servs="${k}" class="${F.s === k ? 'on' : ''}">${l.split(' ')[0]}</button>`).join('')}</div>
     <div class="nav"><button data-servy="-1">‹</button><div class="d">${F.y}</div><button data-servy="1">›</button><button data-servx="1">Excel</button></div>
     <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro este mes</option></select></div>
-    <div class="row" style="gap:8px;margin-bottom:10px"><button class="pri sp" data-servpay="">＋ Registrar pago</button><button data-servacc="">＋ Cuenta</button></div>`;
+    <div class="row" style="gap:8px;margin-bottom:10px"><button class="pri sp" data-servpay="">＋ Registrar pago</button><button data-servacc="">＋ Cuenta</button><button data-servedit="1" class="${F.edit ? 'on pri' : ''}">${F.edit ? 'Listo' : 'Ocultar'}</button></div>`;
+  const OC = new Set(setting('serv_ocultos', []));
   let A = sAcc().filter(a => a.service === F.s && a.active !== false);
+  const nOc = A.filter(a => OC.has(a.id)).length;
+  if (!F.edit) A = A.filter(a => !OC.has(a.id));
   if (F.q) A = A.filter(a => (a.label + ' ' + (a.property_code || '')).toLowerCase().includes(F.q.toLowerCase()));
   const esMgm = a => /^mar[ií]a/i.test(a.responsable || '');
   if (F.solo === 'mgm') A = A.filter(esMgm);
@@ -979,6 +982,8 @@ VIEWS.servicios = () => {
   const pagAnio = A.reduce((t, a) => t + (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0), 0);
   const pend = (S.t.service_payments || []).filter(p => p.status === 'pendiente' && A.some(a => a.id === p.account_id)).length;
   h += `<div class="kpis"><div class="kpi"><div class="v">${money(pagMes)}</div><div class="l">Pagado ${MES3[+mesHoy.slice(5) - 1].toLowerCase()}</div></div><div class="kpi"><div class="v">${money(pagAnio)}</div><div class="l">Pagado ${F.y}</div></div><div class="kpi ${pend ? 'alert' : ''}"><div class="v">${pend}</div><div class="l">Pendientes</div></div></div>`;
+  if (F.edit) h += `<div class="warn" style="margin-bottom:8px">Toca el ojo de cada depa para ocultarlo o mostrarlo en ${esc(SERV.find(x => x[0] === F.s)[1])}. Al terminar toca <b>Listo</b>.</div>`;
+  else if (nOc) h += `<div class="row" style="margin-bottom:6px"><span class="m sp">${nOc} depa(s) oculto(s) en esta pestaña</span><button data-servedit="1">Ver / editar</button></div>`;
   if (!A.length) return h + '<div class="card empty">Sin cuentas.</div>';
   const per = m => `${F.y}-${String(m + 1).padStart(2, '0')}`;
   const cell = (a, m) => { const p = sPay(a.id, per(m));
@@ -986,7 +991,7 @@ VIEWS.servicios = () => {
     return `<td class="sv ${p ? p.status : ''} ${per(m) === mesHoy ? 'hoyc' : ''}" data-servpay="${a.id}|${per(m)}">${t}${p && p.paid_on ? `<small>${+p.paid_on.slice(8)}/${+p.paid_on.slice(5, 7)}</small>` : ''}</td>`; };
   h += `<div class="card scroll" style="padding:6px 0"><table class="svt"><tr><th class="dpc">Depa</th>${MES3.map((m, i) => `<th data-per="${per(i)}" class="${per(i) === mesHoy ? 'hoyc' : ''}">${m}</th>`).join('')}<th class="r">Total</th></tr>`;
   for (const a of A) { const tot = (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    h += `<tr><th class="dpc" data-servacc="${a.id}"><b>${esc(a.label)}</b><small>${esc(a.responsable || '—')}${destinos(a).length ? ' · Gastos' + (destinos(a).length > 1 ? ' ' + destinos(a).map(d => d.code + ' ' + d.pct + '%').join('/') : '') : ''}</small></th>${MES3.map((_, i) => cell(a, i)).join('')}<td class="r"><b>${money(tot)}</b></td></tr>`; }
+    h += `<tr style="${OC.has(a.id) ? 'opacity:.4' : ''}"><th class="dpc" ${F.edit ? `data-servhide="${a.id}"` : `data-servacc="${a.id}"`}>${F.edit ? `<span class="eye">${OC.has(a.id) ? '🙈' : '👁'}</span>` : ''}<b>${esc(a.label)}</b><small>${esc(a.responsable || '—')}${destinos(a).length ? ' · Gastos' + (destinos(a).length > 1 ? ' ' + destinos(a).map(d => d.code + ' ' + d.pct + '%').join('/') : '') : ''}</small></th>${MES3.map((_, i) => cell(a, i)).join('')}<td class="r"><b>${money(tot)}</b></td></tr>`; }
   h += `</table></div><div class="m">Toca una celda para registrar o editar el pago de ese mes; toca el depa para ver contrato, vencimiento y forma de pago. Los pagos de cuentas marcadas "Gastos" (las que paga María) aparecen solos en Gastos e ingresos y en el P&L.</div>`;
   return h;
 };
@@ -1106,7 +1111,7 @@ $('avatar').addEventListener('click', () => go('perfil'));
 window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (t && t !== S.tab) { S.tab = t; render(); } });
 
 $('view').addEventListener('click', async e => {
-  const el = e.target.closest('button,[data-res],[data-tx],[data-task],[data-buy],[data-extra],[data-servpay],[data-servacc]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('button,[data-res],[data-tx],[data-task],[data-buy],[data-extra],[data-servpay],[data-servacc],[data-servhide]'); if (!el) return; const d = el.dataset;
   if (d.asig) return sheetAsignar(d.asig);
   if (d.extra) return extraForm(d.extra);
   if (d.newextra) return extraForm(null);
@@ -1135,6 +1140,8 @@ $('view').addEventListener('click', async e => {
   if (d.servs) { S.f.serv.s = d.servs; S.servScroll = true; return render(); }
   if (d.servy) { S.f.serv.y = String(+S.f.serv.y + Number(d.servy)); return render(); }
   if (d.servx) return exportServicios();
+  if (d.servedit) { S.f.serv.edit = !S.f.serv.edit; return render(); }
+  if (d.servhide) { const o = new Set(setting('serv_ocultos', [])); o.has(d.servhide) ? o.delete(d.servhide) : o.add(d.servhide); return ups('settings', { key: 'serv_ocultos', value: [...o] }, ['key']); }
   if (d.servpay !== undefined) { const [a, p] = d.servpay.split('|'); return servPayForm(a || null, p || null); }
   if (d.servacc !== undefined) return servAccForm(d.servacc || null);
   if (d.cajf !== undefined) { S.cajF = S.cajF === d.cajf ? '' : d.cajf; return render(); }

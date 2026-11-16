@@ -193,3 +193,4 @@ label.chip{display:inline-block;border:1px solid var(--line);background:var(--ca
 .svt td.saldo_favor{color:#2f6db0}
 .svt td.pendiente{color:var(--baja);font-weight:700;background:rgba(180,60,40,.07)}
 .svt .hoyc{background:rgba(176,112,60,.10)}
+.svt .eye{float:left;margin-right:6px;font-size:15px}
