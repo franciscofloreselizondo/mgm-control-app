@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '25';
+const APP_VER = '26';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -628,11 +628,16 @@ VIEWS.cajones = () => {
   const usados = new Set(occ.map(r => r.parking_from).filter(Boolean));
   const libres = [...qal, ...cajonesSueltos()].filter(p => p.has_parking && p.lends_parking && !(by[p.code] && by[p.code].has_car === true) && !usados.has(p.code)).map(p => p.code);
   const faltan = nec.filter(r => !r.parking_from).length;
-  h += `<div class="kpis"><div class="kpi"><div class="v">${nec.length}</div><div class="l">Necesitan prestado</div></div><div class="kpi"><div class="v">${libres.length}</div><div class="l">Cajones libres</div></div><div class="kpi ${faltan ? 'alert' : ''}"><div class="v">${faltan}</div><div class="l">Por asignar</div></div></div>`;
+  const cf = S.cajF || '', K = (k, v, l, x = '') => `<button class="kpi ${x} ${cf === k ? 'sel' : ''}" data-cajf="${k}"><div class="v">${v}</div><div class="l">${l} ›</div></button>`;
+  h += `<div class="kpis">${K('nec', nec.length, 'Necesitan prestado')}${K('libres', libres.length, 'Cajones libres')}${K('faltan', faltan, 'Por asignar', faltan ? 'alert' : '')}</div>`;
+  if (cf) h += `<div class="row" style="margin-bottom:8px"><span class="m sp">Mostrando: <b>${{ nec: 'necesitan cajón prestado', libres: 'cajones libres', faltan: 'por asignar' }[cf]}</b></span><button data-cajf="">Ver todo</button></div>`;
   if (faltan > libres.length) h += `<div class="err">Faltan ${faltan - libres.length} cajón(es) esta noche.</div>`;
-  h += '<h2>Ocupados esta noche</h2>';
-  const occQ = qal.filter(p => by[p.code]);
-  if (!occQ.length) h += '<div class="card empty">Ningún depa de Qalina ocupado.</div>';
+  const libresH = `<h2>Libres para prestar</h2><div class="card">${libres.length ? libres.map(k => `<span class="b n" style="margin:2px">${esc(k)} · S${prop(k).parking_level ?? '?'}</span>`).join(' ') : '<span class="m">Ninguno</span>'}</div>`;
+  if (cf === 'libres') return h + libresH;
+  h += cf ? '' : '<h2>Ocupados esta noche</h2>';
+  const occQ = qal.filter(p => by[p.code] && (cf === 'nec' ? by[p.code].has_car === true && !p.has_parking : cf === 'faltan' ? by[p.code].has_car === true && !p.has_parking && !by[p.code].parking_from : true));
+  if (cf && !occQ.length) h += '<div class="card empty">Ninguno.</div>';
+  if (!cf && !occQ.length) h += '<div class="card empty">Ningún depa de Qalina ocupado.</div>';
   for (const p of occQ) {
     const r = by[p.code], pr = occ.find(x => x.parking_from === p.code);
     h += `<div class="card"><div class="row"><span class="dp">${esc(p.code)}</span><span>${esc(r.guest)}</span><span class="sp"></span><span class="m">${p.has_parking ? 'Cajón S' + (p.parking_level ?? '?') : 'Sin cajón'}</span></div>
@@ -640,7 +645,8 @@ VIEWS.cajones = () => {
       <div class="row" style="margin-top:8px"><span class="m">¿Trae auto?</span><div class="seg">${[['Sí', true], ['No', false]].map(([l, x]) => `<button data-car="${r.id}" data-v="${x ? 1 : 0}" class="${(r.has_car === true) === x ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${!p.has_parking && r.has_car === true ? `<span class="sp"></span><select data-caj="${r.id}"><option value="">Cajón de…</option>${[...new Set([...(r.parking_from ? [r.parking_from] : []), ...libres])].map(o => `<option ${r.parking_from === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>` : ''}</div></div>`;
   }
-  h += `<h2>Libres para prestar</h2><div class="card">${libres.length ? libres.map(k => `<span class="b n" style="margin:2px">${esc(k)} · S${prop(k).parking_level ?? '?'}</span>`).join(' ') : '<span class="m">Ninguno</span>'}</div>`;
+  if (cf) return h;
+  h += libresH;
   const mes = d.slice(0, 7), ini = mes + '-01', fin = ymd(new Date(+mes.slice(0, 4), +mes.slice(5), 1));
   const t = {}; activas().forEach(r => { if (!r.parking_from) return; let n = 0; for (let x = r.checkin; x < r.checkout; x = add(x, 1)) if (x >= ini && x < fin) n++; if (n) t[r.parking_from] = (t[r.parking_from] || 0) + n; });
   const ks = Object.keys(t).sort(), renta = Number(setting('renta_cajon', 500));
@@ -933,6 +939,7 @@ $('view').addEventListener('click', async e => {
   if (d.fset) { const [g, k, v] = d.fset.split('|'); S.f[g][k] = v; return render(); }
   if (d.hoy) { const t = today(), a = activas(); return d.hoy === 'sale' ? sheetLista('Salen hoy', a.filter(r => r.checkout === t), 'sale') : d.hoy === 'entra' ? sheetLista('Entran hoy', a.filter(r => r.checkin === t)) : d.hoy === 'libre' ? sheetLibres(t) : sheetLista('Ocupados esta noche', ocupadas(t)); }
   if (d.cm) { const n = +d.cm; if (!n) { S.calMes = today().slice(0, 7); S.calScroll = true; } else { const [y, m] = S.calMes.split('-').map(Number); const x = new Date(y, m - 1 + n, 1); S.calMes = x.getFullYear() + '-' + pad(x.getMonth() + 1); } return render(); }
+  if (d.cajf !== undefined) { S.cajF = S.cajF === d.cajf ? '' : d.cajf; return render(); }
   if (d.undo) return deshacer();
   if (d.pnlq) { const x = $('pnlQ').value.trim(); if (!x) return toast('Escribe tu pregunta'); return ins('pnl_beta', { id: uid(), data: { texto: x }, updated_by: S.email, updated_at: new Date().toISOString() }, 'Pregunta enviada'); }
   if (d.pnldel) return del('pnl_beta', { id: d.pnldel }, 'Pregunta borrada');
