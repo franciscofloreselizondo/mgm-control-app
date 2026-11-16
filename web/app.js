@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '27';
+const APP_VER = '28';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -219,7 +219,7 @@ async function boot(email) {
 const MAIN = ['hoy', 'cajones', 'calendario', 'nomina', 'menu'];
 const MENU = [
   ['reservas', 'Reservas', 'Capturar, buscar y editar reservas'],
-  ['limpiezas', 'Limpiezas', 'Descansos y tarifas'],
+  ['limpiezas', 'Limpiezas', 'Descansos, supervisión y tarifas'],
   ['finanzas', 'Gastos e ingresos', 'Captura, fotos y exportar a Excel'],
   ['pendientes', 'Pendientes', 'Tareas por departamento'],
   ['compras', 'Compras', 'Lista de compras pendientes'],
@@ -575,19 +575,31 @@ VIEWS.calendario = () => {
 function nominaDe(k, ini) {
   const fin = add(ini, 7), bono = Number(setting('bono_domingo', 50));
   const det = activas().filter(r => r.cleaner_key === k && r.checkout >= ini && r.checkout < fin).sort((a, b) => a.checkout.localeCompare(b.checkout))
-    .map(r => ({ dp: r.property_code, f: r.checkout, t: rate(r.property_code, k), b: dow(r.checkout) === 0 ? bono : 0 }))
-    .concat(S.t.cleanings.filter(x => x.cleaner_key === k && x.date >= ini && x.date < fin).map(x => ({ dp: x.property_code, f: x.date, t: rate(x.property_code, k), b: dow(x.date) === 0 ? bono : 0, x: true })))
+    .map(r => ({ id: 'r:' + r.id, dp: r.property_code, f: r.checkout, t: rate(r.property_code, k), b: dow(r.checkout) === 0 ? bono : 0 }))
+    .concat(S.t.cleanings.filter(x => x.cleaner_key === k && x.date >= ini && x.date < fin).map(x => ({ id: 'x:' + x.id, dp: x.property_code, f: x.date, t: rate(x.property_code, k), b: dow(x.date) === 0 ? bono : 0, x: true })))
     .sort((a, b) => a.f.localeCompare(b.f));
+  // Supervisión: si k supervisa a otras chicas, gana un monto por cada unidad que ellas limpian
+  const SV = supConf()[k], quit = new Set(setting('sup_quitar', [])), pausas = setting('sup_pausas', []).filter(p => p.sup === k);
+  const sup = !SV ? [] : SV.team.flatMap(c => limpiezasDe(c, ini, fin).map(x => ({ ...x, quien: c, m: Number(SV.monto) || 0,
+    off: quit.has(x.id) ? 'quitada' : pausas.some(p => p.from <= x.f && x.f <= p.to) ? 'pausa' : '' }))).sort((a, b) => a.f.localeCompare(b.f));
+  const supTot = sup.filter(x => !x.off).reduce((s, x) => s + x.m, 0);
   const extras = S.t.payroll_extras.filter(x => x.cleaner_key === k && x.week_start === ini);
   const pagos = S.t.payroll_payments.filter(x => x.cleaner_key === k && x.week_start === ini).sort((a, b) => a.date.localeCompare(b.date));
-  const total = det.reduce((s, x) => s + (x.t || 0) + x.b, 0) + extras.reduce((s, x) => s + Number(x.amount), 0);
+  const total = det.reduce((s, x) => s + (x.t || 0) + x.b, 0) + extras.reduce((s, x) => s + Number(x.amount), 0) + supTot;
   const pagado = pagos.reduce((s, x) => s + Number(x.amount), 0);
-  return { det, extras, pagos, total, pagado, saldo: total - pagado };
+  return { det, extras, pagos, total, pagado, saldo: total - pagado, sup, supTot };
+}
+const supConf = () => setting('supervision', { R: { team: ['F', 'K', 'G', 'A'], monto: 30 } }) || {};
+const supervisorDe = c => Object.keys(supConf()).find(k => (supConf()[k].team || []).includes(c));
+function limpiezasDe(c, ini, fin) {
+  return activas().filter(r => r.cleaner_key === c && r.checkout >= ini && r.checkout < fin).map(r => ({ id: 'r:' + r.id, dp: r.property_code, f: r.checkout }))
+    .concat(S.t.cleanings.filter(x => x.cleaner_key === c && x.date >= ini && x.date < fin).map(x => ({ id: 'x:' + x.id, dp: x.property_code, f: x.date, x: true })));
 }
 function textoNomina(k, ini) {
   const N = nominaDe(k, ini);
   let t = `*Nómina ${nombre(k)}*\nSemana ${fmt(ini)} – ${fmt(add(ini, 6))}\n\n`;
   t += N.det.length ? N.det.map(x => `• ${fmt(x.f)} · ${x.dp}${x.x ? ' (extra)' : ''} · ${x.t == null ? 'sin tarifa' : money(x.t)}${x.b ? ` + ${money(x.b)} domingo` : ''}`).join('\n') : '• Sin limpiezas';
+  if (N.sup.length) { const ok = N.sup.filter(x => !x.off); t += `\n\nSupervisión (${ok.length} × ${money(ok[0] ? ok[0].m : 0)}):\n` + ok.map(x => `• ${fmt(x.f)} · ${x.dp} (${nombre(x.quien)})`).join('\n') + `\nSubtotal supervisión: ${money(N.supTot)}`; }
   if (N.extras.length) t += '\n\nOtros:\n' + N.extras.map(x => `• ${x.description} · ${money(Number(x.amount))}`).join('\n');
   t += `\n\n*Total: ${money(N.total)}*`;
   if (N.pagos.length) t += '\n\nPagos:\n' + N.pagos.map(x => `• ${fmt(x.date)} · ${x.method} · ${money(Number(x.amount))}`).join('\n') + `\nPagado: ${money(N.pagado)}`;
@@ -607,6 +619,8 @@ VIEWS.nomina = () => {
     h += `<div class="card"><div class="row"><b style="font-size:16px">${esc(c.name)}</b><span class="m">${N.det.length} limpiezas</span><span class="sp"></span><b>${money(N.total)}</b></div>`;
     if (sinT) h += `<div class="warn" style="margin-top:6px">Falta tarifa en algún depa (Menú → Limpiezas).</div>`;
     if (N.det.length) h += `<table style="margin-top:6px">${N.det.map(x => `<tr><td>${fmt(x.f)}</td><td class="dp">${esc(x.dp)}${x.x ? ' <span class="m">extra</span>' : ''}</td><td class="r">${x.t == null ? '—' : money(x.t)}${x.b ? ` <span class="m">+${x.b}</span>` : ''}</td></tr>`).join('')}</table>`;
+    if (N.sup.length) { const ok = N.sup.filter(x => !x.off).length;
+      h += `<details style="margin-top:6px"><summary class="sub" style="display:flex"><span class="sp">Supervisión · ${ok} de ${N.sup.length} unidades</span><b>${money(N.supTot)}</b></summary><table>${N.sup.map(x => `<tr style="${x.off ? 'opacity:.45' : ''}"><td>${fmt(x.f)}</td><td class="dp">${esc(x.dp)} <span class="m">${esc(nombre(x.quien))}</span></td><td class="r">${x.off === 'pausa' ? '<span class="m">pausa</span>' : money(x.off ? 0 : x.m)}</td><td class="x">${x.off === 'pausa' ? '' : `<button class="xs" data-supq="${x.id}">${x.off ? 'Devolver' : 'Quitar'}</button>`}</td></tr>`).join('')}</table></details>`; }
     if (N.extras.length) h += `<div class="sub">Otros</div><table>${N.extras.map(x => `<tr><td>${esc(x.description)}</td><td class="r">${money(Number(x.amount))}</td><td class="x"><button class="xs" data-del="payroll_extras|${x.id}">×</button></td></tr>`).join('')}</table>`;
     if (N.pagos.length) h += `<div class="sub">Pagos</div><table>${N.pagos.map(x => `<tr><td>${fmt(x.date)}</td><td>${esc(x.method)}${x.note ? ' · ' + esc(x.note) : ''}</td><td class="r">${money(Number(x.amount))}</td><td class="x"><button class="xs" data-del="payroll_payments|${x.id}">×</button></td></tr>`).join('')}</table>`;
     h += `<div class="row" style="margin-top:10px"><span class="b ${N.saldo > 0 ? 'cambio' : 'alta'}">${N.saldo > 0 ? 'SALDO ' + money(N.saldo) : N.total > 0 ? 'PAGADO' : 'SIN MOVIMIENTOS'}</span><span class="sp"></span><button data-otro="${c.key}">＋ Otro</button><button data-pago="${c.key}">＋ Pago</button><button data-copynom="${c.key}">Copiar</button></div></div>`;
@@ -683,6 +697,20 @@ VIEWS.limpiezas = () => {
   let h = '';
   h += `<h2 style="margin-top:0">Descansos</h2><div class="card"><div class="row"><input type="date" id="offDate" value="${today()}"><select id="offK">${cs.map(c => `<option value="${c.key}">${esc(c.name)}</option>`).join('')}</select><button class="pri" data-addoff="1">Agregar</button></div>
     <div class="list">${S.t.days_off.filter(o => o.date >= today()).sort((a, b) => a.date.localeCompare(b.date)).map(o => `<div class="it"><div class="sp">${fmt(o.date)} · ${esc(nombre(o.cleaner_key))}</div><button data-deloff="${o.date}|${o.cleaner_key}">Quitar</button></div>`).join('')}</div></div>`;
+  const C = supConf(), hoy = today();
+  h += `<h2>Supervisión de limpieza</h2>`;
+  for (const k of Object.keys(C)) {
+    const P = setting('sup_pausas', []).filter(p => p.sup === k && p.to >= hoy).sort((a, b) => a.from.localeCompare(b.from));
+    h += `<div class="card"><div class="row"><b style="font-size:16px">${esc(nombre(k))}</b><span class="m">supervisora</span><span class="sp"></span><span class="m">$ por unidad</span><input type="number" inputmode="numeric" style="width:70px" data-supmonto="${k}" value="${Number(C[k].monto) || 0}"></div>
+      <div class="m" style="margin-top:8px">Le reportan:</div><div class="chips" style="margin-top:4px">${cs.filter(c => c.key !== k).map(c => `<label class="chip ${C[k].team.includes(c.key) ? 'on' : ''}"><input type="checkbox" hidden data-supteam="${k}|${c.key}" ${C[k].team.includes(c.key) ? 'checked' : ''}>${esc(c.name)}</label>`).join('')}</div>
+      <div class="m" style="margin-top:10px">Pausas (vacaciones o días que no supervisa): no cobra supervisión esos días.</div>
+      <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:4px"><label class="m">Desde <input type="date" id="spD-${k}" value="${hoy}"></label><label class="m">Hasta <input type="date" id="spH-${k}" value="${hoy}"></label><button data-suppadd="${k}">Agregar pausa</button></div>
+      ${P.length ? `<div class="list" style="margin-top:6px">${P.map(p => `<div class="it"><div class="sp">${fmt(p.from)} → ${fmt(p.to)}</div><button data-suppdel="${p.id}">Quitar</button></div>`).join('')}</div>` : ''}
+      <div class="m" style="margin-top:10px">Para quitarle una unidad en particular: Nómina → ${esc(nombre(k))} → Supervisión → Quitar.</div>
+      <div class="row" style="margin-top:8px"><span class="sp"></span><button data-supset="${k}|del">Ya no es supervisora</button></div></div>`;
+  }
+  const libresSup = cs.filter(c => !C[c.key]);
+  h += `<div class="card row"><span class="m sp">Agregar supervisora</span><select data-supnew="1"><option value="">Elegir…</option>${libresSup.map(c => `<option value="${c.key}">${esc(c.name)}</option>`).join('')}</select></div>`;
   h += `<h2>Tarifa por limpieza</h2><div class="card scroll"><table><tr><th>Depa</th>${cs.map(c => `<th class="r">${esc(c.name)}</th>`).join('')}</tr>`;
   for (const p of props()) h += `<tr><td class="dp">${esc(p.code)}</td>${cs.map(c => `<td class="r"><input type="number" inputmode="numeric" style="width:66px" data-rate="${esc(p.code)}|${c.key}" value="${rate(p.code, c.key) ?? ''}"></td>`).join('')}</tr>`;
   return h + `</table></div><div class="m">Bono por limpieza en domingo: ${money(Number(setting('bono_domingo', 50)))} (se cambia en Supuestos).</div>`;
@@ -972,6 +1000,12 @@ $('view').addEventListener('click', async e => {
   if (d.cajmes) { const [y, m] = (S.cajMes || S.dia.slice(0, 7)).split('-').map(Number), dt = new Date(y, m - 1 + Number(d.cajmes), 1); S.cajMes = ymd(dt).slice(0, 7); return render(); }
   if (d.apdel) return del('parking_loans', { id: d.apdel }, 'Apartado quitado');
   if (d.cajf !== undefined) { S.cajF = S.cajF === d.cajf ? '' : d.cajf; return render(); }
+  if (d.supq) { const q = new Set(setting('sup_quitar', [])); q.has(d.supq) ? q.delete(d.supq) : q.add(d.supq); return ups('settings', { key: 'sup_quitar', value: [...q] }, ['key'], q.has(d.supq) ? 'Supervisión quitada en esa unidad' : 'Supervisión devuelta'); }
+  if (d.supset) { const [k, f] = d.supset.split('|'), C = { ...supConf() }; C[k] = { team: [], monto: 30, ...(C[k] || {}) };
+    if (f === 'del') delete C[k]; else if (f === 'add') {} return ups('settings', { key: 'supervision', value: C }, ['key'], f === 'del' ? 'Supervisora quitada' : 'Supervisora agregada'); }
+  if (d.suppadd) { const k = d.suppadd, a = $('spD-' + k).value, b = $('spH-' + k).value; if (!a || !b || b < a) return toast('Revisa las fechas');
+    return ups('settings', { key: 'sup_pausas', value: [...setting('sup_pausas', []), { id: uid(), sup: k, from: a, to: b }] }, ['key'], 'Pausa agregada'); }
+  if (d.suppdel) return ups('settings', { key: 'sup_pausas', value: setting('sup_pausas', []).filter(p => p.id !== d.suppdel) }, ['key'], 'Pausa quitada');
   if (d.undo) return deshacer();
   if (d.pnlq) { const x = $('pnlQ').value.trim(); if (!x) return toast('Escribe tu pregunta'); return ins('pnl_beta', { id: uid(), data: { texto: x }, updated_by: S.email, updated_at: new Date().toISOString() }, 'Pregunta enviada'); }
   if (d.pnldel) return del('pnl_beta', { id: d.pnldel }, 'Pregunta borrada');
@@ -1001,6 +1035,11 @@ $('view').addEventListener('click', async e => {
 $('view').addEventListener('change', e => {
   const t = e.target, d = t.dataset;
   if (d.f) { const [g, k] = d.f.split('|'); S.f[g][k] = t.value; return render(); }
+  if (d.supteam) { const [k, c] = d.supteam.split('|'), C = { ...supConf() }, T = new Set(C[k].team); t.checked ? T.add(c) : T.delete(c);
+    if (t.checked) { const otra = Object.keys(C).find(o => o !== k && C[o].team.includes(c)); if (otra) C[otra] = { ...C[otra], team: C[otra].team.filter(x => x !== c) }; }
+    C[k] = { ...C[k], team: [...T] }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Equipo actualizado'); }
+  if (d.supmonto) { const C = { ...supConf() }; C[d.supmonto] = { ...C[d.supmonto], monto: Number(t.value) || 0 }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Monto guardado'); }
+  if (d.supnew !== undefined) { if (!t.value) return; const C = { ...supConf(), [t.value]: { team: [], monto: 30 } }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Supervisora agregada'); }
   if (d.pq) return pnlSet(d.pq, t.value);
   if (d.pqm) { const cur = new Set(pnlRow().data[d.pqm] || []); t.checked ? cur.add(t.value) : cur.delete(t.value); return pnlSet(d.pqm, [...cur]); }
   if (d.pqt) return pnlSet(d.pqt, t.value);
