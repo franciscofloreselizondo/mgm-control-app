@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '32';
+const APP_VER = '33';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -968,7 +968,7 @@ VIEWS.servicios = () => {
   const F = S.f.serv || (S.f.serv = { s: 'luz', y: mesAnt().slice(0, 4), q: '', solo: '' }), mesHoy = today().slice(0, 7);
   let h = `<div class="seg" style="margin-bottom:8px;overflow-x:auto;white-space:nowrap">${SERV.map(([k, l]) => `<button data-servs="${k}" class="${F.s === k ? 'on' : ''}">${l.split(' ')[0]}</button>`).join('')}</div>
     <div class="nav"><button data-servy="-1">‹</button><div class="d">${F.y}</div><button data-servy="1">›</button><button data-servx="1">Excel</button></div>
-    <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro este mes</option></select></div>
+    <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro este mes</option><option value="pend" ${F.solo === 'pend' ? 'selected' : ''}>Con pendientes</option></select></div>
     <div class="row" style="gap:8px;margin-bottom:10px"><button class="pri sp" data-servpay="">＋ Registrar pago</button><button data-servacc="">＋ Cuenta</button><button data-servedit="1" class="${F.edit ? 'on pri' : ''}">${F.edit ? 'Listo' : 'Ocultar'}</button></div>`;
   const OC = new Set(setting('serv_ocultos', []));
   let A = sAcc().filter(a => a.service === F.s && a.active !== false);
@@ -978,15 +978,17 @@ VIEWS.servicios = () => {
   const esMgm = a => /^mar[ií]a/i.test(a.responsable || '');
   if (F.solo === 'mgm') A = A.filter(esMgm);
   if (F.solo === 'falta') A = A.filter(a => esMgm(a) && !sPay(a.id, mesHoy));
+  if (F.solo === 'pend') A = A.filter(a => pendientesDe(a, F.y).length);
   const pagMes = A.reduce((t, a) => { const p = sPay(a.id, mesHoy); return t + (p && p.status === 'pagado' ? Number(p.amount) || 0 : 0); }, 0);
   const pagAnio = A.reduce((t, a) => t + (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0), 0);
-  const pend = (S.t.service_payments || []).filter(p => p.status === 'pendiente' && A.some(a => a.id === p.account_id)).length;
-  h += `<div class="kpis"><div class="kpi"><div class="v">${money(pagMes)}</div><div class="l">Pagado ${MES3[+mesHoy.slice(5) - 1].toLowerCase()}</div></div><div class="kpi"><div class="v">${money(pagAnio)}</div><div class="l">Pagado ${F.y}</div></div><div class="kpi ${pend ? 'alert' : ''}"><div class="v">${pend}</div><div class="l">Pendientes</div></div></div>`;
+  const pend = A.reduce((t, a) => t + pendientesDe(a, F.y).length, 0);
+  h += `<div class="kpis"><div class="kpi"><div class="v">${money(pagMes)}</div><div class="l">Pagado ${MES3[+mesHoy.slice(5) - 1].toLowerCase()}</div></div><div class="kpi"><div class="v">${money(pagAnio)}</div><div class="l">Pagado ${F.y}</div></div><button class="kpi ${pend ? 'alert' : ''} ${F.solo === 'pend' ? 'sel' : ''}" data-servpend="1"><div class="v">${pend}</div><div class="l">Pendientes ›</div></button></div>`;
   if (F.edit) h += `<div class="warn" style="margin-bottom:8px">Toca el ojo de cada depa para ocultarlo o mostrarlo en ${esc(SERV.find(x => x[0] === F.s)[1])}. Al terminar toca <b>Listo</b>.</div>`;
   else if (nOc) h += `<div class="row" style="margin-bottom:6px"><span class="m sp">${nOc} depa(s) oculto(s) en esta pestaña</span><button data-servedit="1">Ver / editar</button></div>`;
   if (!A.length) return h + '<div class="card empty">Sin cuentas.</div>';
   const per = m => `${F.y}-${String(m + 1).padStart(2, '0')}`;
-  const cell = (a, m) => { const p = sPay(a.id, per(m));
+  const cell = (a, m) => { const p = sPay(a.id, per(m)), pe = !p && pendientesDe(a, F.y).includes(per(m));
+    if (pe) return `<td class="sv pendiente ${per(m) === mesHoy ? 'hoyc' : ''}" data-servpay="${a.id}|${per(m)}">—</td>`;
     const t = !p ? '' : p.status === 'pagado' ? money(Number(p.amount) || 0).replace('$', '') : p.status === 'na' ? 'N/A' : p.status === 'saldo_favor' ? 'a favor' : 'pend.';
     return `<td class="sv ${p ? p.status : ''} ${per(m) === mesHoy ? 'hoyc' : ''}" data-servpay="${a.id}|${per(m)}">${t}${p && p.paid_on ? `<small>${+p.paid_on.slice(8)}/${+p.paid_on.slice(5, 7)}</small>` : ''}</td>`; };
   h += `<div class="card scroll" style="padding:6px 0"><table class="svt"><tr><th class="dpc">Depa</th>${MES3.map((m, i) => `<th data-per="${per(i)}" class="${per(i) === mesHoy ? 'hoyc' : ''}">${m}</th>`).join('')}<th class="r">Total</th></tr>`;
@@ -995,6 +997,14 @@ VIEWS.servicios = () => {
   h += `</table></div><div class="m">Toca una celda para registrar o editar el pago de ese mes; toca el depa para ver contrato, vencimiento y forma de pago. Los pagos de cuentas marcadas "Gastos" (las que paga María) aparecen solos en Gastos e ingresos y en el P&L.</div>`;
   return h;
 };
+// Pendiente = mes (hasta el actual) sin registro y sin N/A, desde el primer mes con registro de esa cuenta; o marcado "pendiente"
+function pendientesDe(a, y) {
+  const P = (S.t.service_payments || []).filter(p => p.account_id === a.id), hoy = today().slice(0, 7);
+  const ini = P.map(p => p.period).sort()[0]; if (!ini) return [];
+  const out = []; for (let m = 1; m <= 12; m++) { const per = `${y}-${String(m).padStart(2, '0')}`; if (per > hoy || per < ini) continue;
+    const p = P.find(x => x.period === per); if (!p || p.status === 'pendiente') out.push(per); }
+  return out;
+}
 function servPayForm(accId, period) {
   const ex = accId && period ? sPay(accId, period) : null, A = sAcc().filter(a => a.active !== false);
   const a0 = accId || (A.find(a => a.service === S.f.serv.s) || A[0] || {}).id;
@@ -1140,6 +1150,7 @@ $('view').addEventListener('click', async e => {
   if (d.servs) { S.f.serv.s = d.servs; S.servScroll = true; return render(); }
   if (d.servy) { S.f.serv.y = String(+S.f.serv.y + Number(d.servy)); return render(); }
   if (d.servx) return exportServicios();
+  if (d.servpend) { S.f.serv.solo = S.f.serv.solo === 'pend' ? '' : 'pend'; return render(); }
   if (d.servedit) { S.f.serv.edit = !S.f.serv.edit; return render(); }
   if (d.servhide) { const o = new Set(setting('serv_ocultos', [])); o.has(d.servhide) ? o.delete(d.servhide) : o.add(d.servhide); return ups('settings', { key: 'serv_ocultos', value: [...o] }, ['key']); }
   if (d.servpay !== undefined) { const [a, p] = d.servpay.split('|'); return servPayForm(a || null, p || null); }
