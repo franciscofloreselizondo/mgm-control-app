@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '39';
+const APP_VER = '40';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -706,7 +706,9 @@ VIEWS.cajones = () => {
   const gk = Object.keys(G).sort((a, b) => G[b].n - G[a].n);
   h += `<h2>Historial de préstamos</h2><div class="nav"><button data-cajmes="-1">‹</button><div class="d">${fmtMes(hm)}</div><button data-cajmes="1">›</button></div>`;
   h += `<div class="card"><div class="m" style="margin-bottom:6px"><b>Quién pide más</b> · ${H.length} préstamo(s), ${H.reduce((t, x) => t + x.n, 0)} noches</div>${gk.length ? `<table><tr><th>Quién</th><th>Tipo</th><th class="r">Veces</th><th class="r">Noches</th></tr>${gk.map(k => `<tr><td class="dp">${esc(k)}</td><td>${G[k].tipo}</td><td class="r">${G[k].veces}</td><td class="r">${G[k].n}</td></tr>`).join('')}</table>` : '<span class="m">Sin préstamos este mes.</span>'}</div>`;
-  if (H.length) h += `<div class="card scroll"><table><tr><th>Fechas</th><th>Cajón de</th><th>Prestado a</th><th class="r">Noches</th></tr>${H.map(x => `<tr><td>${fmt(x.a)} → ${fmt(x.b)}</td><td class="dp" style="white-space:nowrap">${esc(x.cajon)}</td><td>${esc(x.quien)}${x.tipo === 'Externo' ? ' <span class="b">externo</span>' : ''}</td><td class="r">${x.n}</td></tr>`).join('')}</table></div>`;
+  const G2 = {}; H.forEach(x => { const g = G2[x.cajon] = G2[x.cajon] || { veces: 0, n: 0 }; g.veces++; g.n += x.n; });
+  const gk2 = Object.keys(G2).sort((a, b) => G2[b].n - G2[a].n);
+  h += `<div class="card"><div class="m" style="margin-bottom:6px"><b>Quién presta más</b> · cajones de ${gk2.length} depa(s)</div>${gk2.length ? `<table><tr><th>Cajón de</th><th>Sótano</th><th class="r">Veces</th><th class="r">Noches</th></tr>${gk2.map(k => `<tr><td class="dp">${esc(k)}</td><td>S${(prop(k) || {}).parking_level ?? '?'}</td><td class="r">${G2[k].veces}</td><td class="r">${G2[k].n}</td></tr>`).join('')}</table>` : '<span class="m">Sin préstamos este mes.</span>'}</div>`;
   return h;
 };
 
