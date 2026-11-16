@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '38';
+const APP_VER = '39';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -73,6 +73,7 @@ function supaDB() {
       if (r.error) throw new Error(r.error.message); return path;
     },
     async setAvatar(img) { return e(await sb.rpc('set_my_avatar', { img })); },
+    async touch() { try { await sb.rpc('touch_me'); } catch (_) {} },
     async photoUrl(path) { const r = await sb.storage.from('comprobantes').createSignedUrl(path, 3600); return r.data ? r.data.signedUrl : ''; },
     subscribe(onChange, onState) {
       const ch = sb.channel('mgm');
@@ -209,6 +210,7 @@ async function boot(email) {
   const res = await Promise.all(TABLES.map(t => DB.load(t)));
   S.falta = new Set(); TABLES.forEach((t, i) => { S.t[t] = res[i].rows || []; if (!res[i].rows) S.falta.add(t); });
   S.me = S.t.app_users.find(u => (u.email || '').toLowerCase() === email.toLowerCase()) || null;
+  if (S.me && DB.touch) DB.touch();
   render();
   const timers = {};
   DB.subscribe(t => { clearTimeout(timers[t]); timers[t] = setTimeout(() => reload(t), 400); }, ok => { S.live = ok; renderLive(); });
@@ -227,6 +229,7 @@ const MENU = [
   ['ligas', 'Ligas Airbnb', 'Liga de cada anuncio para copiar'],
   ['servicios', 'Pagos de servicios', 'Luz, agua, gas, internet y mantenimiento por depa · histórico'],
   ['pnl', 'P&L (Beta)', 'Reportes por depa y para dueños · solo María y Paco'],
+  ['usuarios', 'Usuarios y permisos', 'Quién tiene acceso y a qué · actividad · solo superadmin'],
   ['supuestos', 'Supuestos', 'Chicas, cajones, bono, usuarios']
 ];
 const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · calendario, pendientes, compras, claves y ligas', finanzas: 'Finanzas · solo gastos e ingresos' };
@@ -650,7 +653,7 @@ function pagoForm(k) { const N = nominaDe(k, S.semana); openForm({ title: 'Pago 
   save: async v => { if (!v.date) return 'Falta la fecha.'; if (!(Number(v.amount) > 0)) return 'El monto debe ser mayor a cero.'; ins('payroll_payments', { id: uid(), cleaner_key: k, week_start: S.semana, date: v.date, amount: Number(v.amount), method: v.method, note: v.note || null }, 'Pago registrado'); } }); }
 
 // ---------- MENÚ ----------
-VIEWS.menu = () => `<div class="menu">${MENU.filter(m => !['pnl', 'servicios'].includes(m[0]) || isSuper()).map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
+VIEWS.menu = () => `<div class="menu">${MENU.filter(m => !['pnl', 'servicios', 'usuarios'].includes(m[0]) || isSuper()).map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
 
 // ---------- CAJONES QALINA ----------
 VIEWS.cajones = () => {
@@ -1148,6 +1151,43 @@ async function exportServicios() {
     saveFile(new Blob([await wb.xlsx.writeBuffer()], { type: XLSX_MIME }), 'MGM_servicios_' + y + '.xlsx');
   } catch (e) { toast(e.message); }
 }
+// ---------- USUARIOS Y PERMISOS (superadmin) ----------
+// ✏️ edita · 👁 ve · — sin acceso. Refleja ACCESS (pantallas) y las reglas RLS de la base de datos.
+const PERM = [
+  ['Hoy', '✏️', '✏️ sin $', '—'],
+  ['Reservas', '✏️', '✏️ vía Cal. sin $', '—'],
+  ['Calendario', '✏️', '✏️', '—'],
+  ['Cajones Qalina', '✏️', '—', '—'],
+  ['Nómina', '✏️', '—', '—'],
+  ['Limpiezas (descansos, supervisión, tarifas)', '✏️', '—', '—'],
+  ['Gastos e ingresos', '✏️', '—', '✏️'],
+  ['Pagos de servicios', '✏️', '—', '👁 en Gastos'],
+  ['Pendientes', '✏️', '✏️', '—'],
+  ['Compras', '✏️', '✏️', '—'],
+  ['Claves', '✏️', '✏️', '—'],
+  ['Ligas Airbnb', '✏️', '✏️', '—'],
+  ['P&L (Beta)', '✏️', '—', '—'],
+  ['Supuestos y usuarios', '✏️', '—', '—'],
+  ['Respaldo diario (correo 10 pm)', 'María recibe', '—', '—']
+];
+const ROL_N = { superadmin: 'Superadmin', socio: 'Socio', finanzas: 'Finanzas' };
+const haceCuanto = ts => { if (!ts) return 'Nunca ha entrado'; const m = Math.round((Date.now() - new Date(ts)) / 60000);
+  return m < 2 ? 'Ahora' : m < 60 ? `Hace ${m} min` : m < 1440 ? `Hace ${Math.round(m / 60)} h` : m < 2880 ? 'Ayer' : `Hace ${Math.round(m / 1440)} días`; };
+VIEWS.usuarios = () => {
+  if (!isSuper()) return '<div class="empty">Solo superadmin.</div>';
+  const t = S.usrTab || 'permisos', U = S.t.app_users, cnt = r => U.filter(u => u.role === r).length;
+  let h = `<div class="seg" style="margin-bottom:12px;display:flex"><button class="sp ${t === 'actividad' ? 'on' : ''}" data-usrtab="actividad">Actividad</button><button class="sp ${t === 'permisos' ? 'on' : ''}" data-usrtab="permisos">Permisos</button></div>`;
+  if (t === 'actividad') {
+    const L = U.slice().sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
+    h += `<div class="card list">${L.map(u => `<div class="it"><span class="avatar sm">${avatarHTML(u)}</span><div class="sp"><div>${esc(u.name || u.email)}</div><div class="m">${esc(u.email)}</div></div><div style="text-align:right"><span class="b ${u.role === 'superadmin' ? 'alta' : u.role === 'socio' ? 'cambio' : 'n'}">${ROL_N[u.role] || u.role}</span><div class="m" style="margin-top:4px">${haceCuanto(u.last_seen)}${u.visits ? ' · ' + u.visits + ' visitas' : ''}</div></div></div>`).join('')}</div>
+      <div class="m">La actividad se registra desde hoy, cada vez que alguien abre la app. Para agregar o cambiar el tipo de usuario: Menú → Supuestos → Usuarios.</div>`;
+    return h;
+  }
+  h += `<div class="card scroll" style="padding:8px 0"><div class="m" style="padding:0 12px 8px">✏️ ve y edita · 👁 solo ve · — sin acceso · sin $ = no ve montos</div><table class="permt"><tr><th class="dpc">Módulo</th>${['superadmin', 'socio', 'finanzas'].map(r => `<th>${ROL_N[r]}<small>${cnt(r)} · ${esc(U.filter(u => u.role === r).map(u => (u.name || u.email).split(/[ @]/)[0]).join(', '))}</small></th>`).join('')}</tr>
+    ${PERM.map(([m, a, b, c]) => `<tr><th class="dpc">${esc(m)}</th>${[a, b, c].map(x => `<td class="${x === '—' ? 'no' : ''}">${esc(x)}</td>`).join('')}</tr>`).join('')}</table></div>
+    <div class="m">Personal de limpieza: sin acceso (fase 2: confirmación por WhatsApp). Los permisos también están protegidos en la base de datos, no solo en las pantallas.</div>`;
+  return h;
+};
 VIEWS.ligas = () => props().map(p => `<div class="card"><div class="row"><span class="dp">${esc(p.code)}</span><span class="sp"></span>${p.airbnb_url ? `<a href="${esc(p.airbnb_url)}" target="_blank" rel="noopener">Abrir</a>` : ''}<button class="${p.airbnb_url ? 'pri' : ''}" data-copyurl="${esc(p.code)}" ${p.airbnb_url ? '' : 'disabled'}>Copiar</button></div><input style="width:100%;margin-top:8px" type="url" inputmode="url" placeholder="https://airbnb.mx/h/…" data-url="${esc(p.code)}" value="${esc(p.airbnb_url || '')}"></div>`).join('');
 
 // ---------- PERFIL ----------
@@ -1238,6 +1278,7 @@ $('view').addEventListener('click', async e => {
   if (d.suppadd) { const k = d.suppadd, a = $('spD-' + k).value, b = $('spH-' + k).value; if (!a || !b || b < a) return toast('Revisa las fechas');
     return ups('settings', { key: 'sup_pausas', value: [...setting('sup_pausas', []), { id: uid(), sup: k, from: a, to: b }] }, ['key'], 'Pausa agregada'); }
   if (d.suppdel) return ups('settings', { key: 'sup_pausas', value: setting('sup_pausas', []).filter(p => p.id !== d.suppdel) }, ['key'], 'Pausa quitada');
+  if (d.usrtab) { S.usrTab = d.usrtab; return render(); }
   if (d.waopen) return sheetWA();
   if (d.undo) return deshacer();
   if (d.pnlq) { const x = $('pnlQ').value.trim(); if (!x) return toast('Escribe tu pregunta'); return ins('pnl_beta', { id: uid(), data: { texto: x }, updated_by: S.email, updated_at: new Date().toISOString() }, 'Pregunta enviada'); }
