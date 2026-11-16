@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '37';
+const APP_VER = '38';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -376,6 +376,11 @@ $('sheet').addEventListener('click', async e => {
   if (d.act !== undefined && F) { const a = F.actions[+d.act]; if (a.confirm && !confirmTap(b)) return; const v = F.v; closeSheet(); return a.run(v); }
   if (d.pick !== undefined) { closeSheet(); return upd('reservations', { id: d.id }, { cleaner_key: d.pick || null }, d.pick ? 'Asignado a ' + nombre(d.pick) : 'Sin asignar'); }
   if (d.editres) { closeSheet(); return resForm(d.editres); }
+  if (d.wapl) { S.waTit = $('waTit').value; S.waPie = $('waPie').value; S.waSel.has(d.wapl) ? S.waSel.delete(d.wapl) : S.waSel.add(d.wapl); return sheetWA(); }
+  if (d.wa) { S.waTit = $('waTit').value; S.waPie = $('waPie').value; const L = clavesConCodigo().map(x => x.pl); S.waSel = new Set(d.wa === 'todos' ? L : d.wa === 'qalina' ? L.filter(x => x === 'Bodega Qalina' || (prop(x) || {}).building === 'Qalina') : []); return sheetWA(); }
+  if (d.wagen) { S.waTit = $('waTit').value.trim() || 'CONTRASEÑAS DEPARTAMENTOS'; S.waPie = $('waPie').value.trim(); return crearImagenWA(); }
+  if (d.washare) return compartirWA();
+  if (d.wadl) return saveFile(S.waBlob, 'claves.png');
 });
 $('viewer').addEventListener('click', () => { $('viewer').hidden = true; });
 
@@ -866,9 +871,71 @@ function buyForm(id) {
 }
 
 // ---------- CLAVES / LIGAS ----------
+// ---------- Claves → imagen para WhatsApp ----------
+const lugarCorto = pl => pl === 'Bodega Qalina' ? 'Bodega' : pl === 'Caja fuerte Qalina' ? 'Caja fuerte' : pl.replace(/^Q-/, 'Q');
+function clavesConCodigo() { return [...EXTRA_PLACES, ...props().map(p => p.code)].map(pl => ({ pl, c: S.t.access_codes.find(x => x.place === pl) || {} })).filter(x => x.c.code1 || x.c.code2); }
+function sheetWA() {
+  const L = clavesConCodigo();
+  if (!S.waSel) S.waSel = new Set(L.filter(x => x.pl === 'Bodega Qalina' || (prop(x.pl) || {}).building === 'Qalina').map(x => x.pl));
+  S.waTit = S.waTit || 'CONTRASEÑAS DEPARTAMENTOS'; S.waPie = S.waPie || '¡Gracias por tu gran trabajo diario!';
+  sheet(`<h3>Imagen de claves para WhatsApp</h3>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><button data-wa="todos">Todos</button><button data-wa="qalina">Solo Qalina</button><button data-wa="ninguno">Ninguno</button><span class="sp"></span><span class="m">${S.waSel.size} seleccionados</span></div>
+    <div class="chips" style="margin:10px 0">${L.map(x => `<button class="chip ${S.waSel.has(x.pl) ? 'on' : ''}" data-wapl="${esc(x.pl)}">${esc(lugarCorto(x.pl))}</button>`).join('')}</div>
+    <label class="fl"><span>Título</span><input id="waTit" value="${esc(S.waTit)}"></label>
+    <label class="fl"><span>Mensaje al pie</span><input id="waPie" value="${esc(S.waPie)}"></label>
+    <div id="waOut" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:12px"><button data-close="1">Cerrar</button><span class="sp"></span><button class="pri" data-wagen="1">Crear imagen</button></div>`);
+}
+function rr(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function estrella(g, x, y, r, col) { g.save(); g.fillStyle = col; g.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, rr2 = i % 2 ? r * .38 : r; g.lineTo(x + Math.cos(a) * rr2, y + Math.sin(a) * rr2); } g.closePath(); g.fill(); g.restore(); }
+function huella(g, x, y, s) { g.save(); g.fillStyle = '#2b3a4a'; g.beginPath(); g.ellipse(x, y + s * .35, s * .42, s * .34, 0, 0, 7); g.fill(); [[-.42, -.12], [-.15, -.42], [.15, -.42], [.42, -.12]].forEach(([dx, dy]) => { g.beginPath(); g.arc(x + dx * s, y + dy * s, s * .16, 0, 7); g.fill(); }); g.restore(); }
+function llave(g, x, y, col) { g.save(); g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 6; g.beginPath(); g.arc(x + 14, y, 11, 0, 7); g.stroke(); g.beginPath(); g.moveTo(x + 25, y); g.lineTo(x + 58, y); g.stroke(); g.fillRect(x + 46, y, 6, 12); g.fillRect(x + 54, y, 5, 9); g.restore(); }
+function puerta(g, x, y) { g.save(); g.strokeStyle = '#7d6a4f'; g.lineWidth = 3; rr(g, x, y, 34, 50, 4); g.stroke(); g.fillStyle = '#7d6a4f'; g.beginPath(); g.arc(x + 26, y + 27, 3, 0, 7); g.fill(); g.restore(); }
+async function crearImagenWA() {
+  const items = clavesConCodigo().filter(x => S.waSel.has(x.pl)); if (!items.length) return toast('Selecciona al menos un lugar');
+  await (document.fonts && document.fonts.ready);
+  const W = 1080, cols = 2, filas = Math.ceil(items.length / cols), RH = 112, top = 250, H = top + filas * RH + 190;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+  // fondo
+  const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#cfe9fb'); bg.addColorStop(1, '#a9d4f3'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.globalAlpha = .35; for (let i = 0; i < 18; i++) { g.fillStyle = '#ffffff'; g.beginPath(); g.arc((i * 197) % W, (i * 331) % H, 10 + (i * 7) % 26, 0, 7); g.fill(); } g.globalAlpha = 1;
+  g.fillStyle = 'rgba(255,255,255,.55)'; rr(g, 30, 30, W - 60, H - 60, 36); g.fill();
+  // título
+  g.fillStyle = '#1f2d3d'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  let fs = 64; g.font = `800 ${fs}px Outfit, Arial, sans-serif`; while (g.measureText(S.waTit).width > W - 200 && fs > 30) { fs -= 2; g.font = `800 ${fs}px Outfit, Arial, sans-serif`; }
+  g.fillText(S.waTit, W / 2, 130);
+  [[95, 90, 22, '#f5c542'], [W - 100, 85, 26, '#f5c542'], [160, 175, 14, '#f5c542'], [W - 170, 185, 16, '#f5c542'], [W / 2 - 330, 70, 12, '#ffffff'], [W / 2 + 330, 66, 12, '#ffffff']].forEach(a => estrella(g, ...a));
+  // filas (llenado por columna, como el formato)
+  const cw = (W - 150) / 2, porCol = filas;
+  items.forEach((it, i) => {
+    const c = Math.floor(i / porCol), r = i % porCol, x = 60 + c * (cw + 30), y = top + r * RH;
+    const azul = (r + c) % 3 !== 1;
+    g.fillStyle = azul ? '#bfe1f7' : '#fde3a0'; g.strokeStyle = azul ? '#7fb8e0' : '#e9bf55'; g.lineWidth = 3; rr(g, x, y, cw, RH - 22, 22); g.fill(); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.7)'; rr(g, x + 14, y + 14, 80, RH - 50, 14); g.fill();
+    llave(g, x + 22, y + (RH - 22) / 2, azul ? '#3c7fc0' : '#c9962a');
+    const txt = '• ' + lugarCorto(it.pl) + ': ' + [it.c.code1, it.c.code2].filter(Boolean).join(' / ');
+    let f2 = 40; g.font = `700 ${f2}px Outfit, Arial, sans-serif`; while (g.measureText(txt).width > cw - 170 && f2 > 22) { f2 -= 1; g.font = `700 ${f2}px Outfit, Arial, sans-serif`; }
+    g.fillStyle = '#16202b'; g.textAlign = 'left'; g.fillText(txt, x + 108, y + (RH - 22) / 2 + 2);
+    if (i % 3 === 0 && 108 + g.measureText(txt).width < cw - 70) puerta(g, x + cw - 50, y + 20);
+  });
+  // huellas
+  [[48, top + 40], [W - 48, top + RH * 2], [48, top + RH * 4], [W - 48, top + RH * 6], [48, top + RH * 7.5]].forEach(([x, y]) => y < H - 200 && huella(g, x, y, 22));
+  // pie
+  const fy = top + filas * RH + 30; g.fillStyle = '#ffffff'; g.strokeStyle = '#7fb8e0'; g.lineWidth = 3; rr(g, 90, fy, W - 180, 96, 48); g.fill(); g.stroke();
+  g.textAlign = 'center'; g.fillStyle = '#1f2d3d'; let f3 = 40; g.font = `700 ${f3}px Outfit, Arial, sans-serif`; while (g.measureText(S.waPie).width > W - 260 && f3 > 22) { f3 -= 1; g.font = `700 ${f3}px Outfit, Arial, sans-serif`; }
+  g.fillText(S.waPie, W / 2, fy + 49); estrella(g, 130, fy + 48, 16, '#f5c542'); estrella(g, W - 130, fy + 48, 16, '#f5c542');
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png')); S.waBlob = blob;
+  const url = URL.createObjectURL(blob);
+  $('waOut').innerHTML = `<img src="${url}" style="width:100%;border-radius:12px;border:1px solid var(--line)"><div class="row" style="margin-top:8px;gap:8px"><button class="pri sp" data-washare="1">Compartir en WhatsApp</button><button data-wadl="1">Descargar</button></div>`;
+}
+async function compartirWA() {
+  const f = new File([S.waBlob], 'claves.png', { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [f] })) { try { await navigator.share({ files: [f], title: S.waTit }); } catch (_) {} }
+  else saveFile(S.waBlob, 'claves.png');
+}
 VIEWS.claves = () => {
   const places = [...props().map(p => p.code), ...EXTRA_PLACES];
-  return `<div class="m" style="margin-bottom:8px">Se guardan al salir de cada campo.</div><div class="card scroll"><table><tr><th>Lugar</th><th>Clave 1</th><th>Clave 2</th></tr>${places.map(pl => { const c = S.t.access_codes.find(x => x.place === pl) || {};
+  return `<div class="row" style="margin-bottom:8px"><button class="pri sp" data-waopen="1">📲 Imagen de claves para WhatsApp</button></div><div class="m" style="margin-bottom:8px">Se guardan al salir de cada campo.</div><div class="card scroll"><table><tr><th>Lugar</th><th>Clave 1</th><th>Clave 2</th></tr>${places.map(pl => { const c = S.t.access_codes.find(x => x.place === pl) || {};
     return `<tr><td class="dp">${esc(pl)}</td><td><input class="code" data-code="${esc(pl)}|code1" value="${esc(c.code1 || '')}" autocomplete="off"></td><td><input class="code" data-code="${esc(pl)}|code2" value="${esc(c.code2 || '')}" autocomplete="off"></td></tr>`; }).join('')}</table></div>`;
 };
 // ---------- P&L (Beta): análisis + cuestionario para María (solo superadmin) ----------
@@ -1171,6 +1238,7 @@ $('view').addEventListener('click', async e => {
   if (d.suppadd) { const k = d.suppadd, a = $('spD-' + k).value, b = $('spH-' + k).value; if (!a || !b || b < a) return toast('Revisa las fechas');
     return ups('settings', { key: 'sup_pausas', value: [...setting('sup_pausas', []), { id: uid(), sup: k, from: a, to: b }] }, ['key'], 'Pausa agregada'); }
   if (d.suppdel) return ups('settings', { key: 'sup_pausas', value: setting('sup_pausas', []).filter(p => p.id !== d.suppdel) }, ['key'], 'Pausa quitada');
+  if (d.waopen) return sheetWA();
   if (d.undo) return deshacer();
   if (d.pnlq) { const x = $('pnlQ').value.trim(); if (!x) return toast('Escribe tu pregunta'); return ins('pnl_beta', { id: uid(), data: { texto: x }, updated_by: S.email, updated_at: new Date().toISOString() }, 'Pregunta enviada'); }
   if (d.pnldel) return del('pnl_beta', { id: d.pnldel }, 'Pregunta borrada');
