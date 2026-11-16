@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '36';
+const APP_VER = '37';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -822,7 +822,9 @@ VIEWS.pendientes = () => {
   const term = t => (t.status === 'terminado' ? 1 : 0);
   rs.sort((a, b) => term(a) - term(b) || (f.sort === 'prio' ? PR_ORD[a.priority] - PR_ORD[b.priority] || (a.date || '9').localeCompare(b.date || '9') : f.sort === 'date' ? (a.date || '9').localeCompare(b.date || '9') : (ord[a.property_code] ?? 99) - (ord[b.property_code] ?? 99) || PR_ORD[a.priority] - PR_ORD[b.priority]));
   let h = `<div class="row" style="margin-bottom:10px"><button class="pri big sp" data-newtask="1">＋ Nuevo pendiente</button></div>`;
-  h += `<div class="row filt">${fsel('task', 'depa', depaOpts('Todos los depas'))}${fsel('task', 'status', [['', 'Todo estatus'], ...Object.entries(ST)])}${fsel('task', 'prio', [['', 'Toda prioridad'], ...Object.entries(PR)])}${fsel('task', 'resp', [['', 'Todo responsable'], ...resps])}${fsel('task', 'sort', [['prio', 'Orden: prioridad'], ['date', 'Orden: fecha'], ['depa', 'Orden: depa']])}</div>`;
+  const abiertos = S.t.tasks.filter(t => t.status !== 'terminado');
+  h += `<div class="row prio-f"><span class="m">Prioridad</span>${['alta', 'media', 'baja'].map(k => `<button class="pf ${f.prio === k ? 'on' : ''}" data-tprio="${k}" title="${PR[k]}"><i class="dot ${k}"></i>${abiertos.filter(t => t.priority === k).length}</button>`).join('')}${f.prio ? '<button class="pf" data-tprio="">Todas</button>' : ''}</div>`;
+  h += `<div class="row filt">${fsel('task', 'depa', depaOpts('Todos los depas'))}${fsel('task', 'status', [['', 'Todo estatus'], ...Object.entries(ST)])}${fsel('task', 'resp', [['', 'Todo responsable'], ...resps])}${fsel('task', 'sort', [['prio', 'Orden: prioridad'], ['date', 'Orden: fecha'], ['depa', 'Orden: depa']])}</div>`;
   h += rs.length ? rs.map(t => `<div class="card tap ${t.status === 'terminado' ? 'done' : ''}" data-task="${t.id}"><div class="row"><i class="dot ${t.priority}"></i><span class="dp">${esc(t.property_code || 'General')}</span><span class="sp"></span><span class="b ${t.status === 'terminado' ? 'alta' : t.status === 'en_pausa' ? 'n' : 'cambio'}">${ST[t.status].toUpperCase()}</span></div><div style="margin-top:4px">${esc(t.description)}</div><div class="m">${[t.responsible, t.date && fmt(t.date)].filter(Boolean).map(esc).join(' · ')}</div>${t.progress ? `<div class="m">Avance: ${esc(t.progress)}</div>` : ''}</div>`).join('') : '<div class="card empty">Sin pendientes con estos filtros.</div>';
   return h;
 };
@@ -1161,6 +1163,7 @@ $('view').addEventListener('click', async e => {
   if (d.servhide) { const o = new Set(setting('serv_ocultos', [])); o.has(d.servhide) ? o.delete(d.servhide) : o.add(d.servhide); return ups('settings', { key: 'serv_ocultos', value: [...o] }, ['key']); }
   if (d.servpay !== undefined) { const [a, p] = d.servpay.split('|'); return servPayForm(a || null, p || null); }
   if (d.servacc !== undefined) return servAccForm(d.servacc || null);
+  if (d.tprio !== undefined) { S.f.task.prio = S.f.task.prio === d.tprio ? '' : d.tprio; return render(); }
   if (d.cajf !== undefined) { S.cajF = S.cajF === d.cajf ? '' : d.cajf; return render(); }
   if (d.supq) { const q = new Set(setting('sup_quitar', [])); q.has(d.supq) ? q.delete(d.supq) : q.add(d.supq); return ups('settings', { key: 'sup_quitar', value: [...q] }, ['key'], q.has(d.supq) ? 'Supervisión quitada en esa unidad' : 'Supervisión devuelta'); }
   if (d.supset) { const [k, f] = d.supset.split('|'), C = { ...supConf() }; C[k] = { team: [], monto: 30, ...(C[k] || {}) };

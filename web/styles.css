@@ -194,3 +194,7 @@ label.chip{display:inline-block;border:1px solid var(--line);background:var(--ca
 .svt td.pendiente{color:var(--baja);font-weight:700;background:rgba(180,60,40,.07)}
 .svt .hoyc{background:rgba(176,112,60,.10)}
 .svt .eye{float:left;margin-right:6px;font-size:15px}
+.prio-f{gap:8px;margin-bottom:8px;align-items:center}
+.prio-f .pf{display:flex;align-items:center;gap:6px;border-radius:22px;padding:6px 14px;font-weight:700}
+.prio-f .pf .dot{width:18px;height:18px}
+.prio-f .pf.on{border-color:var(--ink);box-shadow:inset 0 0 0 2px var(--ink)}
