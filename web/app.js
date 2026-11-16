@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '29';
+const APP_VER = '30';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -751,6 +751,8 @@ function txForm(id) {
     values: t ? { ...t, category_other: t.category_other || '', description: t.description || '', photos: [...(t.photos || [])] } : { date: today(), property_code: S.f.fin.depa || '', category: cats[0], category_other: '', description: '', amount: '', photos: [] },
     fields: v => [
       t && t.reservation_id && { type: 'note', html: 'Este ingreso viene de una reserva; el monto y la fecha se cambian en la reserva.' },
+      t && t.service_payment_id && { type: 'note', html: 'Este gasto viene de Pagos de servicios; lo ideal es corregirlo ahí para que ambos coincidan.' },
+      !t && kind === 'gasto' && Object.values(SERV_CAT).includes(v.category) && v.property_code && S.t.transactions.some(x => x.service_payment_id && x.property_code === v.property_code && x.category === v.category && (x.date || '').slice(0, 7) === (v.date || '').slice(0, 7)) && { type: 'note', cls: 'warn', html: `Ya hay un pago de ${esc(v.category)} de este depa en este mes, capturado en Pagos de servicios. Revisa que no sea el mismo.` },
       { k: 'date', label: 'Fecha', type: 'date' }, { k: 'property_code', label: 'Departamento', type: 'select', options: depaOpts() },
       { k: 'category', label: kind === 'gasto' ? 'Categoría' : 'Tipo de ingreso', type: 'select', options: cats },
       otra(v.category) && { k: 'category_other', label: '¿Cuál?', type: 'text' },
@@ -934,9 +936,24 @@ const SERV_ST = [['pagado', 'Pagado'], ['pendiente', 'Pendiente de pago'], ['na'
 const MES3 = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const sAcc = () => (S.t.service_accounts || []).slice().sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || a.label.localeCompare(b.label));
 const sPay = (acc, per) => (S.t.service_payments || []).find(p => p.account_id === acc && p.period === per);
-// Gastos de servicios que van al P&L (los usará el módulo P&L): cuenta con depa de la app y "va al P&L"
-function serviciosPnl(depa, ym) { const A = new Map(sAcc().filter(a => a.to_pnl && a.property_code === depa).map(a => [a.id, a]));
-  return (S.t.service_payments || []).filter(p => A.has(p.account_id) && p.period === ym && p.status === 'pagado').map(p => ({ cat: SERV_CAT[A.get(p.account_id).service], amount: Number(p.amount) || 0 })); }
+// Liga con Gastos e ingresos (y por lo tanto con el P&L): solo cuentas que paga María (to_pnl) y pagos "pagado".
+// Una cuenta puede ir a un depa o dividirse (split: [{code, pct}], ej. Lighthouse 2005 = LHA 65% / LHB 35%).
+const destinos = a => !a || !a.to_pnl ? [] : Array.isArray(a.split) && a.split.length ? a.split : a.property_code ? [{ code: a.property_code, pct: 100 }] : [];
+function syncServicio(pay) {
+  const a = sAcc().find(x => x.id === pay.account_id), T = pay.status === 'pagado' && Number(pay.amount) > 0 ? destinos(a) : [];
+  const ligadas = S.t.transactions.filter(t => t.service_payment_id === pay.id);
+  ligadas.filter(t => !T.some(d => d.code === t.property_code)).forEach(t => del('transactions', { id: t.id }));
+  for (const d of T) {
+    const row = { kind: 'gasto', date: pay.paid_on || pay.period + '-01', property_code: d.code, category: SERV_CAT[a.service], category_other: null,
+      description: 'Pago de servicio · ' + a.label + (d.pct < 100 ? ` (${d.pct}%)` : ''), amount: Math.round(Number(pay.amount) * d.pct) / 100, photos: pay.photos || [], service_payment_id: pay.id };
+    const ya = ligadas.find(t => t.property_code === d.code);
+    if (ya) upd('transactions', { id: ya.id }, row);
+    else { // si Sandy ya lo capturó en Gastos (mismo depa, categoría y mes, sin ligar), se liga en vez de duplicar
+      const suelto = S.t.transactions.find(t => !t.service_payment_id && t.kind === 'gasto' && t.property_code === d.code && t.category === row.category && (t.date || '').slice(0, 7) === row.date.slice(0, 7));
+      if (suelto) upd('transactions', { id: suelto.id }, row); else ins('transactions', { id: uid(), ...row, checked: false, reservation_id: null });
+    }
+  }
+}
 VIEWS.servicios = () => {
   if (S.falta && (S.falta.has('service_accounts') || S.falta.has('service_payments'))) return '<div class="card m">El módulo se activa en cuanto Paco termine de crear las tablas y cargar el histórico del Excel.</div>';
   const F = S.f.serv || (S.f.serv = { s: 'luz', y: today().slice(0, 4), q: '', solo: '' }), mesHoy = today().slice(0, 7);
@@ -960,8 +977,8 @@ VIEWS.servicios = () => {
     return `<td class="sv ${p ? p.status : ''} ${per(m) === mesHoy ? 'hoyc' : ''}" data-servpay="${a.id}|${per(m)}">${t}${p && p.paid_on ? `<small>${+p.paid_on.slice(8)}/${+p.paid_on.slice(5, 7)}</small>` : ''}</td>`; };
   h += `<div class="card scroll" style="padding:6px 0"><table class="svt"><tr><th class="dpc">Depa</th>${MES3.map((m, i) => `<th class="${per(i) === mesHoy ? 'hoyc' : ''}">${m}</th>`).join('')}<th class="r">Total</th></tr>`;
   for (const a of A) { const tot = (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    h += `<tr><th class="dpc" data-servacc="${a.id}"><b>${esc(a.label)}</b><small>${esc(a.responsable || '—')}${a.to_pnl ? ' · P&L' : ''}</small></th>${MES3.map((_, i) => cell(a, i)).join('')}<td class="r"><b>${money(tot)}</b></td></tr>`; }
-  h += `</table></div><div class="m">Toca una celda para registrar o editar el pago de ese mes; toca el depa para ver contrato, vencimiento y forma de pago. "P&L" = el pago se suma al P&L del depa.</div>`;
+    h += `<tr><th class="dpc" data-servacc="${a.id}"><b>${esc(a.label)}</b><small>${esc(a.responsable || '—')}${destinos(a).length ? ' · Gastos' + (destinos(a).length > 1 ? ' ' + destinos(a).map(d => d.code + ' ' + d.pct + '%').join('/') : '') : ''}</small></th>${MES3.map((_, i) => cell(a, i)).join('')}<td class="r"><b>${money(tot)}</b></td></tr>`; }
+  h += `</table></div><div class="m">Toca una celda para registrar o editar el pago de ese mes; toca el depa para ver contrato, vencimiento y forma de pago. Los pagos de cuentas marcadas "Gastos" (las que paga María) aparecen solos en Gastos e ingresos y en el P&L.</div>`;
   return h;
 };
 function servPayForm(accId, period) {
@@ -976,23 +993,25 @@ function servPayForm(accId, period) {
       (v.status === 'pagado' || v.status === 'saldo_favor' || v.status === 'pendiente') && { k: 'amount', label: v.status === 'saldo_favor' ? 'Saldo a favor' : 'Monto', type: 'number' },
       v.status === 'pagado' && { k: 'paid_on', label: 'Fecha de pago', type: 'date' },
       { k: 'note', label: 'Nota', type: 'text' }, { k: 'photos', label: 'Recibo / comprobante (opcional)', type: 'photos' }]; },
-    actions: ex ? [{ label: 'Borrar', confirm: true, run: () => del('service_payments', { id: ex.id }, 'Pago borrado') }] : [],
+    actions: ex ? [{ label: 'Borrar', confirm: true, run: () => { S.t.transactions.filter(t => t.service_payment_id === ex.id).forEach(t => del('transactions', { id: t.id })); del('service_payments', { id: ex.id }, 'Pago borrado'); } }] : [],
     save: async v => {
       if (!v.account_id) return 'Elige la cuenta.'; if (!/^\d{4}-\d{2}$/.test(v.period || '')) return 'Elige el mes.';
       if (v.status === 'pagado' && !(Number(v.amount) > 0)) return 'Escribe el monto pagado.';
       const otro = sPay(v.account_id, v.period); if (otro && (!ex || otro.id !== ex.id)) return 'Ese mes ya tiene un registro; tócalo en la tabla para editarlo.';
       const row = { account_id: v.account_id, period: v.period, status: v.status, amount: v.amount === '' || v.status === 'na' ? null : (v.status === 'saldo_favor' ? -Math.abs(Number(v.amount)) : Number(v.amount)), paid_on: v.status === 'pagado' ? v.paid_on || null : null, note: (v.note || '').trim() || null, photos: v.photos || [] };
-      if (ex) upd('service_payments', { id: ex.id }, row, 'Pago guardado'); else ins('service_payments', { id: uid(), ...row, created_by: S.email }, 'Pago registrado');
+      let pay; if (ex) { upd('service_payments', { id: ex.id }, row, 'Pago guardado'); pay = { ...ex, ...row }; } else { pay = { id: uid(), ...row, created_by: S.email }; ins('service_payments', pay, 'Pago registrado'); }
+      syncServicio(pay);
     } });
 }
 function servAccForm(id) {
   const a = id ? sAcc().find(x => x.id === id) : null;
   openForm({ title: a ? a.label + ' · ' + (SERV.find(s => s[0] === a.service) || [])[1] : 'Nueva cuenta de servicio',
-    values: a ? { ...a } : { service: S.f.serv.s, label: '', property_code: '', contrato: '', extra: '', vencimiento: '', responsable: 'María', forma_pago: '', to_pnl: 'true', active: 'true' },
+    values: a ? { ...a, property_code: Array.isArray(a.split) && a.split.length ? '__split' : a.property_code || '', split_txt: (a.split || []).map(x => x.code + ':' + x.pct).join(', '), to_pnl: String(!!a.to_pnl), active: String(a.active !== false) } : { service: S.f.serv.s, label: '', property_code: '', contrato: '', extra: '', vencimiento: '', responsable: 'María', forma_pago: '', to_pnl: 'true', active: 'true' },
     fields: v => [
       !a && { k: 'service', label: 'Servicio', type: 'select', options: SERV },
       { k: 'label', label: 'Propiedad (como aparece en la lista)', type: 'text' },
-      { k: 'property_code', label: 'Depa en la app (para el P&L)', type: 'select', options: [['', '— ninguno —'], ...props().map(p => [p.code, p.code])] },
+      { k: 'property_code', label: 'Depa en la app (para Gastos y P&L)', type: 'select', options: [['', '— ninguno —'], ['__split', 'Dividir entre varios depas…'], ...props().map(p => [p.code, p.code])] },
+      v.property_code === '__split' && { k: 'split_txt', label: 'División (depa:% separados por coma)', type: 'text', ph: 'LHA:65, LHB:35' },
       { k: 'contrato', label: v.service === 'gas' ? 'Cliente' : 'Contrato', type: 'text' },
       v.service !== 'luz' && v.service !== 'mantenimiento' && { k: 'extra', label: { agua: 'Clave', gas: 'Proveedor', internet: 'Proveedor' }[v.service] || 'Dato', type: 'text' },
       { k: 'vencimiento', label: 'Vencimiento', type: 'text', ph: 'Ej. Día 6 c/2 meses' }, { k: 'responsable', label: 'Responsable de pago', type: 'text' },
@@ -1002,9 +1021,14 @@ function servAccForm(id) {
     actions: a ? [{ label: 'Borrar cuenta e histórico', confirm: true, run: () => del('service_accounts', { id: a.id }, 'Cuenta borrada') }] : [],
     save: async v => {
       if (!(v.label || '').trim()) return 'Escribe la propiedad.';
-      const row = { label: v.label.trim(), property_code: v.property_code || null, contrato: (v.contrato || '').trim() || null, extra: (v.extra || '').trim() || null, extra_label: { agua: 'Clave', gas: 'Proveedor', internet: 'Proveedor' }[v.service] || null,
+      let split = null;
+      if (v.property_code === '__split') { split = (v.split_txt || '').split(',').map(x => x.split(':').map(y => y.trim())).filter(x => x[0]).map(([code, pct]) => ({ code, pct: Number(pct) }));
+        if (split.some(x => !prop(x.code) || !(x.pct > 0))) return 'Revisa la división: usa códigos de depa de la app, ej. LHA:65, LHB:35.';
+        if (Math.round(split.reduce((t, x) => t + x.pct, 0)) !== 100) return 'Los porcentajes deben sumar 100.'; }
+      const row = { label: v.label.trim(), property_code: split ? null : v.property_code || null, split, contrato: (v.contrato || '').trim() || null, extra: (v.extra || '').trim() || null, extra_label: { agua: 'Clave', gas: 'Proveedor', internet: 'Proveedor' }[v.service] || null,
         vencimiento: (v.vencimiento || '').trim() || null, responsable: (v.responsable || '').trim() || null, forma_pago: (v.forma_pago || '').trim() || null, to_pnl: String(v.to_pnl) === 'true', active: String(v.active) !== 'false' };
-      if (a) upd('service_accounts', { id: a.id }, row, 'Cuenta guardada'); else ins('service_accounts', { id: uid(), service: v.service, sort: 999, ...row }, 'Cuenta agregada');
+      if (a) { upd('service_accounts', { id: a.id }, row, 'Cuenta guardada'); (S.t.service_payments || []).filter(p => p.account_id === a.id).forEach(syncServicio); }
+      else ins('service_accounts', { id: uid(), service: v.service, sort: 999, ...row }, 'Cuenta agregada');
     } });
 }
 async function exportServicios() {
