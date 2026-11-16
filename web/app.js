@@ -31,9 +31,9 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '26';
+const APP_VER = '27';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
-  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta'];
+  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
   'Reparaciones menores', 'Pintura', 'Limpieza de muebles', 'Mantenimiento AC', 'Gas', 'Luz', 'Internet', 'Agua', 'Predial', 'Otro'];
 const CAT_INGRESO = ['Ingreso por reserva', 'Otros ingresos'];
@@ -125,6 +125,7 @@ const S = {
   }
 };
 const esCajon = p => p.kind === 'cajon';
+const apartado = (code, d) => (S.t.parking_loans || []).find(x => x.cajon === code && x.date_from <= d && d < x.date_to);
 const cajonesSueltos = () => S.t.properties.filter(p => p.active !== false && esCajon(p)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
 const limpiaMGM = c => (prop(c) || {}).cleaning !== false;
 const props = () => S.t.properties.filter(p => p.active !== false && !esCajon(p)).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
@@ -172,7 +173,7 @@ function ups(t, row, pk, msg) {
   pushUndo(t, [i >= 0 ? { a: 'upd', t, m, p: Object.fromEntries(Object.keys(row).map(k => [k, S.t[t][i][k] === undefined ? null : S.t[t][i][k]])) } : { a: 'del', t, m }], msg);
   if (i >= 0) Object.assign(S.t[t][i], row); else S.t[t].push(row); render(); return done(DB.upsert(t, row, pk), t, msg);
 }
-async function reload(t) { const r = await DB.load(t); if (r.rows) { S.t[t] = r.rows; render(); } }
+async function reload(t) { const r = await DB.load(t); if (r.rows) { S.t[t] = r.rows; S.falta?.delete(t); render(); } }
 
 // ---------- sesión ----------
 async function start() {
@@ -206,7 +207,7 @@ async function boot(email) {
   S.email = email; $('login').hidden = true; $('shell').hidden = false;
   $('view').innerHTML = '<div class="empty">Cargando…</div>';
   const res = await Promise.all(TABLES.map(t => DB.load(t)));
-  TABLES.forEach((t, i) => { S.t[t] = res[i].rows || []; });
+  S.falta = new Set(); TABLES.forEach((t, i) => { S.t[t] = res[i].rows || []; if (!res[i].rows) S.falta.add(t); });
   S.me = S.t.app_users.find(u => (u.email || '').toLowerCase() === email.toLowerCase()) || null;
   render();
   const timers = {};
@@ -215,9 +216,9 @@ async function boot(email) {
 }
 
 // ---------- navegación ----------
-const MAIN = ['hoy', 'reservas', 'calendario', 'nomina', 'menu'];
+const MAIN = ['hoy', 'cajones', 'calendario', 'nomina', 'menu'];
 const MENU = [
-  ['cajones', 'Cajones Qalina', 'Quién trae auto y qué cajón usa'],
+  ['reservas', 'Reservas', 'Capturar, buscar y editar reservas'],
   ['limpiezas', 'Limpiezas', 'Descansos y tarifas'],
   ['finanzas', 'Gastos e ingresos', 'Captura, fotos y exportar a Excel'],
   ['pendientes', 'Pendientes', 'Tareas por departamento'],
@@ -246,7 +247,7 @@ function setupTabbar() {
   $('tabbar').style.gridTemplateColumns = `repeat(${Math.max(acc.bar.length, 1)},1fr)`;
 }
 function allowed(tab) { const acc = ACCESS[S.me.role] || ACCESS.superadmin; return tab === 'perfil' || !acc.bar || acc.bar.some(b => b[0] === tab) || tab === acc.home; }
-const TITLES = { perfil: 'Mi perfil', reservas: 'Reservas', hoy: 'Hoy', calendario: 'Calendario', nomina: 'Nómina', menu: 'Menú', ...Object.fromEntries(MENU.map(m => [m[0], m[1]])) };
+const TITLES = { perfil: 'Mi perfil', reservas: 'Reservas', cajones: 'Cajones Qalina', hoy: 'Hoy', calendario: 'Calendario', nomina: 'Nómina', menu: 'Menú', ...Object.fromEntries(MENU.map(m => [m[0], m[1]])) };
 const VIEWS = {};
 function go(tab) { S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; render(); }
 // Congela los controles de arriba (botones, filtros, navegación) de cada pestaña
@@ -379,7 +380,8 @@ function solapa(v, selfId) { return activas().find(r => r.id !== selfId && r.pro
 function prestadores(v, selfId) {
   return [...props(), ...cajonesSueltos()].filter(p => p.building === 'Qalina' && p.has_parking && p.lends_parking && p.code !== v.property_code).map(p => {
     const busy = v.checkin && v.checkout && activas().some(x => x.id !== selfId && x.checkin < v.checkout && v.checkin < x.checkout && ((x.property_code === p.code && x.has_car === true) || x.parking_from === p.code));
-    return [p.code, `${p.code} · sótano ${p.parking_level ?? '?'}${busy ? ' · OCUPADO' : ''}`];
+    const ap = v.checkin && v.checkout && (S.t.parking_loans || []).find(x => x.cajon === p.code && x.date_from < v.checkout && v.checkin < x.date_to);
+    return [p.code, `${p.code} · sótano ${p.parking_level ?? '?'}${busy ? ' · OCUPADO' : ap ? ' · APARTADO a ' + ap.name : ''}`];
   });
 }
 function cleanerOpts(depa, fecha, actual) { return [['', '— sin asignar —'], ...cleaners().filter(c => !(fecha && descansa(fecha, c.key)) || c.key === actual).map(c => { const t = rate(depa, c.key); return [c.key, c.name + (t != null ? ' · ' + money(t) : '') + (fecha && descansa(fecha, c.key) ? ' · descansa' : '')]; })]; }
@@ -551,7 +553,9 @@ VIEWS.calendario = () => {
         let es = '';
         if (p.building === 'Qalina') {
           const pr = ls2.find(r => r.checkin <= d && d < r.checkout);
+          const ap = apartado(p.code, d);
           if (pr) es = 'Prest. a ' + esc(corto(pr.property_code));
+          else if (ap) es = 'Prest. a ' + esc(ap.name);
           else if (noche && noche.has_car === true) es = p.has_parking ? 'Sí' : noche.parking_from ? 'De ' + esc(corto(noche.parking_from)) : '<span class="falta">Falta</span>';
           else if (noche && noche.has_car === false) es = 'No';
         }
@@ -625,7 +629,7 @@ VIEWS.cajones = () => {
   const occ = ocupadas(d), by = {}; occ.forEach(r => { by[r.property_code] = r; });
   const qal = props().filter(p => p.building === 'Qalina');
   const nec = qal.filter(p => by[p.code] && by[p.code].has_car === true && !p.has_parking).map(p => by[p.code]);
-  const usados = new Set(occ.map(r => r.parking_from).filter(Boolean));
+  const usados = new Set([...occ.map(r => r.parking_from).filter(Boolean), ...(S.t.parking_loans || []).filter(x => x.date_from <= d && d < x.date_to).map(x => x.cajon)]);
   const libres = [...qal, ...cajonesSueltos()].filter(p => p.has_parking && p.lends_parking && !(by[p.code] && by[p.code].has_car === true) && !usados.has(p.code)).map(p => p.code);
   const faltan = nec.filter(r => !r.parking_from).length;
   const cf = S.cajF || '', K = (k, v, l, x = '') => `<button class="kpi ${x} ${cf === k ? 'sel' : ''}" data-cajf="${k}"><div class="v">${v}</div><div class="l">${l} ›</div></button>`;
@@ -647,10 +651,29 @@ VIEWS.cajones = () => {
   }
   if (cf) return h;
   h += libresH;
+  const prestables = [...qal, ...cajonesSueltos()].filter(p => p.has_parking && p.lends_parking);
+  const aps = (S.t.parking_loans || []).filter(x => x.date_to > today()).sort((a, b) => a.date_from.localeCompare(b.date_from));
+  if (S.falta && S.falta.has('parking_loans')) h += `<h2>Apartados a externos</h2><div class="card m">Se activa en unos minutos (falta crear la tabla en la base de datos).</div>`;
+  else h += `<h2>Apartados a externos</h2><div class="card"><div class="m" style="margin-bottom:6px">Cajones que prestamos a alguien sin reserva. Mientras estén apartados no aparecen como libres.</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px"><select id="apC">${prestables.map(p => `<option value="${esc(p.code)}">${esc(p.code)} · S${p.parking_level ?? '?'}</option>`).join('')}</select><input id="apN" placeholder="Nombre de quién" style="flex:1;min-width:140px"></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><label class="m">Desde <input type="date" id="apD" value="${d}"></label><label class="m">Hasta <input type="date" id="apH" value="${add(d, 1)}"></label><span class="sp"></span><button class="pri" data-apadd="1">Apartar</button></div>
+    <div class="list" style="margin-top:8px">${aps.length ? aps.map(x => `<div class="it"><div class="sp"><b>${esc(x.cajon)}</b> · ${esc(x.name)}<div class="m">${fmt(x.date_from)} → ${fmt(x.date_to)}</div></div><button data-apdel="${x.id}">Quitar</button></div>`).join('') : '<div class="m">Ninguno.</div>'}</div></div>`;
   const mes = d.slice(0, 7), ini = mes + '-01', fin = ymd(new Date(+mes.slice(0, 4), +mes.slice(5), 1));
   const t = {}; activas().forEach(r => { if (!r.parking_from) return; let n = 0; for (let x = r.checkin; x < r.checkout; x = add(x, 1)) if (x >= ini && x < fin) n++; if (n) t[r.parking_from] = (t[r.parking_from] || 0) + n; });
   const ks = Object.keys(t).sort(), renta = Number(setting('renta_cajon', 500));
   h += `<h2>Cajones prestados · ${fmtMes(mes)}</h2><div class="card">${ks.length ? `<table><tr><th>Cajón de</th><th class="r">Noches</th><th class="r">Renta</th></tr>${ks.map(k => `<tr><td class="dp">${esc(k)}</td><td class="r">${t[k]}</td><td class="r">${money(renta)}</td></tr>`).join('')}<tr><th>Total</th><th></th><th class="r">${money(ks.length * renta)}</th></tr></table>` : '<span class="m">Sin préstamos este mes.</span>'}</div>`;
+  // Historial de préstamos (reservas con cajón prestado + apartados a externos)
+  const hm = S.cajMes || mes, hi = hm + '-01', hf = ymd(new Date(+hm.slice(0, 4), +hm.slice(5), 1));
+  const noches = (a, b) => { let n = 0; for (let x = a; x < b; x = add(x, 1)) if (x >= hi && x < hf) n++; return n; };
+  const H = [
+    ...activas().filter(r => r.parking_from && r.checkin < hf && hi < r.checkout).map(r => ({ cajon: r.parking_from, quien: r.property_code + ' · ' + r.guest, tipo: 'Reserva', grupo: r.property_code, a: r.checkin, b: r.checkout })),
+    ...(S.t.parking_loans || []).filter(x => x.date_from < hf && hi < x.date_to).map(x => ({ cajon: x.cajon, quien: x.name, tipo: 'Externo', grupo: x.name, a: x.date_from, b: x.date_to }))
+  ].map(x => ({ ...x, n: noches(x.a, x.b) })).sort((a, b) => a.a.localeCompare(b.a));
+  const G = {}; H.forEach(x => { const g = G[x.grupo] = G[x.grupo] || { tipo: x.tipo, veces: 0, n: 0 }; g.veces++; g.n += x.n; });
+  const gk = Object.keys(G).sort((a, b) => G[b].n - G[a].n);
+  h += `<h2>Historial de préstamos</h2><div class="nav"><button data-cajmes="-1">‹</button><div class="d">${fmtMes(hm)}</div><button data-cajmes="1">›</button></div>`;
+  h += `<div class="card"><div class="m" style="margin-bottom:6px"><b>Quién pide más</b> · ${H.length} préstamo(s), ${H.reduce((t, x) => t + x.n, 0)} noches</div>${gk.length ? `<table><tr><th>Quién</th><th>Tipo</th><th class="r">Veces</th><th class="r">Noches</th></tr>${gk.map(k => `<tr><td class="dp">${esc(k)}</td><td>${G[k].tipo}</td><td class="r">${G[k].veces}</td><td class="r">${G[k].n}</td></tr>`).join('')}</table>` : '<span class="m">Sin préstamos este mes.</span>'}</div>`;
+  if (H.length) h += `<div class="card scroll"><table><tr><th>Fechas</th><th>Cajón de</th><th>Prestado a</th><th class="r">Noches</th></tr>${H.map(x => `<tr><td>${fmt(x.a)} → ${fmt(x.b)}</td><td class="dp" style="white-space:nowrap">${esc(x.cajon)}</td><td>${esc(x.quien)}${x.tipo === 'Externo' ? ' <span class="b">externo</span>' : ''}</td><td class="r">${x.n}</td></tr>`).join('')}</table></div>`;
   return h;
 };
 
@@ -939,6 +962,15 @@ $('view').addEventListener('click', async e => {
   if (d.fset) { const [g, k, v] = d.fset.split('|'); S.f[g][k] = v; return render(); }
   if (d.hoy) { const t = today(), a = activas(); return d.hoy === 'sale' ? sheetLista('Salen hoy', a.filter(r => r.checkout === t), 'sale') : d.hoy === 'entra' ? sheetLista('Entran hoy', a.filter(r => r.checkin === t)) : d.hoy === 'libre' ? sheetLibres(t) : sheetLista('Ocupados esta noche', ocupadas(t)); }
   if (d.cm) { const n = +d.cm; if (!n) { S.calMes = today().slice(0, 7); S.calScroll = true; } else { const [y, m] = S.calMes.split('-').map(Number); const x = new Date(y, m - 1 + n, 1); S.calMes = x.getFullYear() + '-' + pad(x.getMonth() + 1); } return render(); }
+  if (d.apadd) {
+    const c = $('apC').value, n = $('apN').value.trim(), a = $('apD').value, b = $('apH').value;
+    if (!n) return toast('Escribe el nombre'); if (!a || !b || b <= a) return toast('La fecha "hasta" debe ser después de "desde"');
+    const choque = activas().find(x => x.parking_from === c && x.checkin < b && a < x.checkout) || (S.t.parking_loans || []).find(x => x.cajon === c && x.date_from < b && a < x.date_to);
+    if (choque) return toast('Ese cajón ya está prestado en esas fechas (' + (choque.guest || choque.name) + ')');
+    return ins('parking_loans', { id: uid(), cajon: c, name: n, date_from: a, date_to: b }, 'Cajón apartado');
+  }
+  if (d.cajmes) { const [y, m] = (S.cajMes || S.dia.slice(0, 7)).split('-').map(Number), dt = new Date(y, m - 1 + Number(d.cajmes), 1); S.cajMes = ymd(dt).slice(0, 7); return render(); }
+  if (d.apdel) return del('parking_loans', { id: d.apdel }, 'Apartado quitado');
   if (d.cajf !== undefined) { S.cajF = S.cajF === d.cajf ? '' : d.cajf; return render(); }
   if (d.undo) return deshacer();
   if (d.pnlq) { const x = $('pnlQ').value.trim(); if (!x) return toast('Escribe tu pregunta'); return ins('pnl_beta', { id: uid(), data: { texto: x }, updated_by: S.email, updated_at: new Date().toISOString() }, 'Pregunta enviada'); }

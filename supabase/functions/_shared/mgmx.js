@@ -53,6 +53,7 @@
           if (p.building === 'Qalina') {
             const pr = ls.find(r => r.checkin <= d && d < r.checkout);
             if (pr) es = 'Prestado a ' + corto(pr.property_code);
+            else if ((D.parking_loans || []).some(x => x.cajon === p.code && x.date_from <= d && d < x.date_to)) es = 'Prestado a ' + D.parking_loans.find(x => x.cajon === p.code && x.date_from <= d && d < x.date_to).name;
             else if (noche && noche.has_car === true) es = p.has_parking ? 'Si' : noche.parking_from ? 'De ' + corto(noche.parking_from) : 'FALTA';
             else if (noche && noche.has_car === false) es = 'No';
           }
@@ -110,6 +111,7 @@
     table(wb, 'Tarifas limpieza', [['Departamento', 'code'], ...cs.map(c => [c.name, c.key, 10])], props(D).map(p => ({ code: p.code, ...Object.fromEntries(cs.map(c => [c.key, rate(p.code, c.key)])) })));
     table(wb, 'Descansos', [['Fecha', 'date', 12], ['Chica', 'chica']], D.days_off.slice().sort((a, b) => a.date.localeCompare(b.date)).map(o => ({ ...o, chica: nombre(D, o.cleaner_key) })));
     table(wb, 'Bloqueos NA', [['Departamento', 'property_code'], ['Desde', 'date_from', 12], ['Hasta', 'date_to', 12], ['Nota', 'note', 30]], D.blocks);
+    table(wb, 'Cajones apartados', [['Cajón', 'cajon'], ['Nombre', 'name', 24], ['Desde', 'date_from', 12], ['Hasta', 'date_to', 12]], D.parking_loans || []);
     if (opts.claves) table(wb, 'Claves', [['Lugar', 'place', 20], ['Clave 1', 'code1'], ['Clave 2', 'code2']], D.access_codes);
     table(wb, 'Usuarios', [['Nombre', 'name'], ['Correo', 'email', 30], ['Acceso', 'role']], D.app_users);
     return wb;
