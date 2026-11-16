@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '30';
+const APP_VER = '31';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -250,7 +250,7 @@ function setupTabbar() {
 function allowed(tab) { const acc = ACCESS[S.me.role] || ACCESS.superadmin; return tab === 'perfil' || !acc.bar || acc.bar.some(b => b[0] === tab) || tab === acc.home; }
 const TITLES = { perfil: 'Mi perfil', reservas: 'Reservas', cajones: 'Cajones Qalina', hoy: 'Hoy', calendario: 'Calendario', nomina: 'Nómina', menu: 'Menú', ...Object.fromEntries(MENU.map(m => [m[0], m[1]])) };
 const VIEWS = {};
-function go(tab) { S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; render(); }
+function go(tab) { S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; if (tab === 'servicios') { S.servScroll = true; const pm = mesAnt(); if (S.f.serv) S.f.serv.y = pm.slice(0, 4); } render(); }
 // Congela los controles de arriba (botones, filtros, navegación) de cada pestaña
 function fijarCabecera() {
   const v = $('view'); if (!v || v.querySelector('.calhead')) return;
@@ -271,6 +271,12 @@ function initJump() {
   upd();
 }
 // Calendario: lleva la vista a la semana y columna de hoy
+const mesAnt = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return ymd(d).slice(0, 7); };
+// Pagos de servicios: abre con la columna del mes anterior pegada a la columna de depa
+function irAMesAnt() {
+  const box = document.querySelector('#view .scroll'), th = box && box.querySelector('th[data-per="' + mesAnt() + '"]'), dpc = box && box.querySelector('th.dpc');
+  if (!th || !dpc) return; box.scrollLeft = 0; box.scrollLeft = th.getBoundingClientRect().left - dpc.getBoundingClientRect().right;
+}
 function irAHoy() {
   const sem = $('semhoy'); if (!sem) return;
   sem.scrollIntoView({ block: 'start' });
@@ -296,13 +302,16 @@ function render() {
   document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.t === (S.tab === 'perfil' ? '' : sub ? 'menu' : S.tab)));
   const P = isSuper() ? pendientes() : { limpiezas: [], cajones: [] }; const n = P.limpiezas.length + P.cajones.length;
   if ($('badge')) { $('badge').hidden = !n; $('badge').textContent = n; }
+  const keepS = S.tab === 'servicios' && S.lastTab === 'servicios' ? [...document.querySelectorAll('#view .scroll')].map(c => c.scrollLeft) : null;
   const keepX = S.tab === 'calendario' && S.lastTab === 'calendario' && S.lastMes === S.calMes ? [...document.querySelectorAll('#view .cal')].map(c => c.scrollLeft) : null;
   $('view').innerHTML = VIEWS[S.tab]();
+  if (keepS && !S.servScroll) document.querySelectorAll('#view .scroll').forEach((c, i) => { if (keepS[i]) c.scrollLeft = keepS[i]; });
   if (keepX) document.querySelectorAll('#view .cal').forEach((c, i) => { if (keepX[i]) c.scrollLeft = keepX[i]; });
   S.lastTab = S.tab; S.lastMes = S.calMes;
   fijarCabecera();
   { const rs = document.documentElement.style, bar = document.querySelector('.bar'), ch = document.querySelector('.calhead');
     if (bar) rs.setProperty('--barh', bar.offsetHeight + 'px'); if (ch) rs.setProperty('--calh', ch.offsetHeight + 'px'); }
+  if (S.servScroll && S.tab === 'servicios') { S.servScroll = false; irAMesAnt(); requestAnimationFrame(irAMesAnt); }
   if (S.calScroll && S.tab === 'calendario') { S.calScroll = false; irAHoy(); requestAnimationFrame(irAHoy); setTimeout(irAHoy, 300); }
   renderLive();
 }
@@ -956,7 +965,7 @@ function syncServicio(pay) {
 }
 VIEWS.servicios = () => {
   if (S.falta && (S.falta.has('service_accounts') || S.falta.has('service_payments'))) return '<div class="card m">El módulo se activa en cuanto Paco termine de crear las tablas y cargar el histórico del Excel.</div>';
-  const F = S.f.serv || (S.f.serv = { s: 'luz', y: today().slice(0, 4), q: '', solo: '' }), mesHoy = today().slice(0, 7);
+  const F = S.f.serv || (S.f.serv = { s: 'luz', y: mesAnt().slice(0, 4), q: '', solo: '' }), mesHoy = today().slice(0, 7);
   let h = `<div class="seg" style="margin-bottom:8px;overflow-x:auto;white-space:nowrap">${SERV.map(([k, l]) => `<button data-servs="${k}" class="${F.s === k ? 'on' : ''}">${l.split(' ')[0]}</button>`).join('')}</div>
     <div class="nav"><button data-servy="-1">‹</button><div class="d">${F.y}</div><button data-servy="1">›</button><button data-servx="1">Excel</button></div>
     <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro este mes</option></select></div>
@@ -975,7 +984,7 @@ VIEWS.servicios = () => {
   const cell = (a, m) => { const p = sPay(a.id, per(m));
     const t = !p ? '' : p.status === 'pagado' ? money(Number(p.amount) || 0).replace('$', '') : p.status === 'na' ? 'N/A' : p.status === 'saldo_favor' ? 'a favor' : 'pend.';
     return `<td class="sv ${p ? p.status : ''} ${per(m) === mesHoy ? 'hoyc' : ''}" data-servpay="${a.id}|${per(m)}">${t}${p && p.paid_on ? `<small>${+p.paid_on.slice(8)}/${+p.paid_on.slice(5, 7)}</small>` : ''}</td>`; };
-  h += `<div class="card scroll" style="padding:6px 0"><table class="svt"><tr><th class="dpc">Depa</th>${MES3.map((m, i) => `<th class="${per(i) === mesHoy ? 'hoyc' : ''}">${m}</th>`).join('')}<th class="r">Total</th></tr>`;
+  h += `<div class="card scroll" style="padding:6px 0"><table class="svt"><tr><th class="dpc">Depa</th>${MES3.map((m, i) => `<th data-per="${per(i)}" class="${per(i) === mesHoy ? 'hoyc' : ''}">${m}</th>`).join('')}<th class="r">Total</th></tr>`;
   for (const a of A) { const tot = (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0);
     h += `<tr><th class="dpc" data-servacc="${a.id}"><b>${esc(a.label)}</b><small>${esc(a.responsable || '—')}${destinos(a).length ? ' · Gastos' + (destinos(a).length > 1 ? ' ' + destinos(a).map(d => d.code + ' ' + d.pct + '%').join('/') : '') : ''}</small></th>${MES3.map((_, i) => cell(a, i)).join('')}<td class="r"><b>${money(tot)}</b></td></tr>`; }
   h += `</table></div><div class="m">Toca una celda para registrar o editar el pago de ese mes; toca el depa para ver contrato, vencimiento y forma de pago. Los pagos de cuentas marcadas "Gastos" (las que paga María) aparecen solos en Gastos e ingresos y en el P&L.</div>`;
@@ -1123,7 +1132,7 @@ $('view').addEventListener('click', async e => {
   }
   if (d.cajmes) { const [y, m] = (S.cajMes || S.dia.slice(0, 7)).split('-').map(Number), dt = new Date(y, m - 1 + Number(d.cajmes), 1); S.cajMes = ymd(dt).slice(0, 7); return render(); }
   if (d.apdel) return del('parking_loans', { id: d.apdel }, 'Apartado quitado');
-  if (d.servs) { S.f.serv.s = d.servs; return render(); }
+  if (d.servs) { S.f.serv.s = d.servs; S.servScroll = true; return render(); }
   if (d.servy) { S.f.serv.y = String(+S.f.serv.y + Number(d.servy)); return render(); }
   if (d.servx) return exportServicios();
   if (d.servpay !== undefined) { const [a, p] = d.servpay.split('|'); return servPayForm(a || null, p || null); }
