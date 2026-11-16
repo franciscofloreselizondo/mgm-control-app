@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '33';
+const APP_VER = '34';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -1000,7 +1000,9 @@ VIEWS.servicios = () => {
 // Pendiente = mes (hasta el actual) sin registro y sin N/A, desde el primer mes con registro de esa cuenta; o marcado "pendiente"
 function pendientesDe(a, y) {
   const P = (S.t.service_payments || []).filter(p => p.account_id === a.id), hoy = today().slice(0, 7);
-  const ini = P.map(p => p.period).sort()[0]; if (!ini) return [];
+  // Cuentas que no aplican (sin responsable o sin ningún pago registrado) no generan pendientes
+  if (!(a.responsable || '').trim() || !P.some(p => p.status === 'pagado')) return [];
+  const ini = P.map(p => p.period).sort()[0];
   const out = []; for (let m = 1; m <= 12; m++) { const per = `${y}-${String(m).padStart(2, '0')}`; if (per > hoy || per < ini) continue;
     const p = P.find(x => x.period === per); if (!p || p.status === 'pendiente') out.push(per); }
   return out;
