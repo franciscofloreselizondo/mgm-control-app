@@ -182,3 +182,14 @@ h2{color:var(--mute);letter-spacing:.08em;font-weight:600;font-size:12px}
 button:disabled{opacity:.4;cursor:default}
 label.chip{display:inline-block;border:1px solid var(--line);background:var(--card);cursor:pointer;line-height:1.3}label.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}details>summary{cursor:pointer}
 .kpi.sel{border-color:var(--acc);box-shadow:inset 0 0 0 2px var(--acc)}
+/* pagos de servicios */
+.svt{border-collapse:collapse;font-size:12.5px;min-width:100%}
+.svt th,.svt td{padding:6px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}
+.svt th.dpc{position:sticky;left:0;background:var(--card);text-align:left;z-index:1;cursor:pointer;max-width:120px}
+.svt th.dpc small,.svt td small{display:block;font-size:10px;font-weight:400;color:#7b8082}
+.svt td.sv{cursor:pointer;min-width:58px}
+.svt td.pagado{color:var(--acc);font-weight:600}
+.svt td.na{color:#9aa0a2}
+.svt td.saldo_favor{color:#2f6db0}
+.svt td.pendiente{color:var(--baja);font-weight:700;background:rgba(180,60,40,.07)}
+.svt .hoyc{background:rgba(176,112,60,.10)}

@@ -31,9 +31,9 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '28';
+const APP_VER = '29';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
-  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans'];
+  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
   'Reparaciones menores', 'Pintura', 'Limpieza de muebles', 'Mantenimiento AC', 'Gas', 'Luz', 'Internet', 'Agua', 'Predial', 'Otro'];
 const CAT_INGRESO = ['Ingreso por reserva', 'Otros ingresos'];
@@ -225,6 +225,7 @@ const MENU = [
   ['compras', 'Compras', 'Lista de compras pendientes'],
   ['claves', 'Claves', 'Claves de puerta, bodega y caja fuerte'],
   ['ligas', 'Ligas Airbnb', 'Liga de cada anuncio para copiar'],
+  ['servicios', 'Pagos de servicios', 'Luz, agua, gas, internet y mantenimiento por depa · histórico'],
   ['pnl', 'P&L (Beta)', 'Reportes por depa y para dueños · solo María y Paco'],
   ['supuestos', 'Supuestos', 'Chicas, cajones, bono, usuarios']
 ];
@@ -634,7 +635,7 @@ function pagoForm(k) { const N = nominaDe(k, S.semana); openForm({ title: 'Pago 
   save: async v => { if (!v.date) return 'Falta la fecha.'; if (!(Number(v.amount) > 0)) return 'El monto debe ser mayor a cero.'; ins('payroll_payments', { id: uid(), cleaner_key: k, week_start: S.semana, date: v.date, amount: Number(v.amount), method: v.method, note: v.note || null }, 'Pago registrado'); } }); }
 
 // ---------- MENÚ ----------
-VIEWS.menu = () => `<div class="menu">${MENU.filter(m => m[0] !== 'pnl' || isSuper()).map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
+VIEWS.menu = () => `<div class="menu">${MENU.filter(m => !['pnl', 'servicios'].includes(m[0]) || isSuper()).map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
 
 // ---------- CAJONES QALINA ----------
 VIEWS.cajones = () => {
@@ -926,6 +927,105 @@ VIEWS.pnl = () => {
   h += pnlPreg().map(p => `<div class="card"><div class="m">${esc(p.updated_by || '')} · ${esc(fmt((p.updated_at || '').slice(0, 10)))}</div><div style="margin-top:4px;white-space:pre-wrap">${esc(p.data.texto)}</div>${p.data.respuesta ? `<div class="m" style="margin-top:8px;border-left:3px solid var(--acc);padding-left:8px;white-space:pre-wrap"><b>Respuesta:</b> ${esc(p.data.respuesta)}</div>` : '<div class="m" style="margin-top:6px">Pendiente de respuesta</div>'}<div class="row" style="margin-top:6px"><span class="sp"></span><button data-pnldel="${p.id}">Borrar</button></div></div>`).join('');
   return h;
 };
+// ---------- PAGOS DE SERVICIOS ----------
+const SERV = [['luz', 'Luz (CFE)'], ['agua', 'Agua (SIAPA)'], ['gas', 'Gas'], ['internet', 'Internet'], ['mantenimiento', 'Mantenimiento']];
+const SERV_CAT = { luz: 'Luz', agua: 'Agua', gas: 'Gas', internet: 'Internet', mantenimiento: 'Mantenimiento del edificio' };
+const SERV_ST = [['pagado', 'Pagado'], ['pendiente', 'Pendiente de pago'], ['na', 'N/A (no aplica / sin cargo)'], ['saldo_favor', 'Saldo a favor']];
+const MES3 = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const sAcc = () => (S.t.service_accounts || []).slice().sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || a.label.localeCompare(b.label));
+const sPay = (acc, per) => (S.t.service_payments || []).find(p => p.account_id === acc && p.period === per);
+// Gastos de servicios que van al P&L (los usará el módulo P&L): cuenta con depa de la app y "va al P&L"
+function serviciosPnl(depa, ym) { const A = new Map(sAcc().filter(a => a.to_pnl && a.property_code === depa).map(a => [a.id, a]));
+  return (S.t.service_payments || []).filter(p => A.has(p.account_id) && p.period === ym && p.status === 'pagado').map(p => ({ cat: SERV_CAT[A.get(p.account_id).service], amount: Number(p.amount) || 0 })); }
+VIEWS.servicios = () => {
+  if (S.falta && (S.falta.has('service_accounts') || S.falta.has('service_payments'))) return '<div class="card m">El módulo se activa en cuanto Paco termine de crear las tablas y cargar el histórico del Excel.</div>';
+  const F = S.f.serv || (S.f.serv = { s: 'luz', y: today().slice(0, 4), q: '', solo: '' }), mesHoy = today().slice(0, 7);
+  let h = `<div class="seg" style="margin-bottom:8px;overflow-x:auto;white-space:nowrap">${SERV.map(([k, l]) => `<button data-servs="${k}" class="${F.s === k ? 'on' : ''}">${l.split(' ')[0]}</button>`).join('')}</div>
+    <div class="nav"><button data-servy="-1">‹</button><div class="d">${F.y}</div><button data-servy="1">›</button><button data-servx="1">Excel</button></div>
+    <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro este mes</option></select></div>
+    <div class="row" style="gap:8px;margin-bottom:10px"><button class="pri sp" data-servpay="">＋ Registrar pago</button><button data-servacc="">＋ Cuenta</button></div>`;
+  let A = sAcc().filter(a => a.service === F.s && a.active !== false);
+  if (F.q) A = A.filter(a => (a.label + ' ' + (a.property_code || '')).toLowerCase().includes(F.q.toLowerCase()));
+  const esMgm = a => /^mar[ií]a/i.test(a.responsable || '');
+  if (F.solo === 'mgm') A = A.filter(esMgm);
+  if (F.solo === 'falta') A = A.filter(a => esMgm(a) && !sPay(a.id, mesHoy));
+  const pagMes = A.reduce((t, a) => { const p = sPay(a.id, mesHoy); return t + (p && p.status === 'pagado' ? Number(p.amount) || 0 : 0); }, 0);
+  const pagAnio = A.reduce((t, a) => t + (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0), 0);
+  const pend = (S.t.service_payments || []).filter(p => p.status === 'pendiente' && A.some(a => a.id === p.account_id)).length;
+  h += `<div class="kpis"><div class="kpi"><div class="v">${money(pagMes)}</div><div class="l">Pagado ${MES3[+mesHoy.slice(5) - 1].toLowerCase()}</div></div><div class="kpi"><div class="v">${money(pagAnio)}</div><div class="l">Pagado ${F.y}</div></div><div class="kpi ${pend ? 'alert' : ''}"><div class="v">${pend}</div><div class="l">Pendientes</div></div></div>`;
+  if (!A.length) return h + '<div class="card empty">Sin cuentas.</div>';
+  const per = m => `${F.y}-${String(m + 1).padStart(2, '0')}`;
+  const cell = (a, m) => { const p = sPay(a.id, per(m));
+    const t = !p ? '' : p.status === 'pagado' ? money(Number(p.amount) || 0).replace('$', '') : p.status === 'na' ? 'N/A' : p.status === 'saldo_favor' ? 'a favor' : 'pend.';
+    return `<td class="sv ${p ? p.status : ''} ${per(m) === mesHoy ? 'hoyc' : ''}" data-servpay="${a.id}|${per(m)}">${t}${p && p.paid_on ? `<small>${+p.paid_on.slice(8)}/${+p.paid_on.slice(5, 7)}</small>` : ''}</td>`; };
+  h += `<div class="card scroll" style="padding:6px 0"><table class="svt"><tr><th class="dpc">Depa</th>${MES3.map((m, i) => `<th class="${per(i) === mesHoy ? 'hoyc' : ''}">${m}</th>`).join('')}<th class="r">Total</th></tr>`;
+  for (const a of A) { const tot = (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    h += `<tr><th class="dpc" data-servacc="${a.id}"><b>${esc(a.label)}</b><small>${esc(a.responsable || '—')}${a.to_pnl ? ' · P&L' : ''}</small></th>${MES3.map((_, i) => cell(a, i)).join('')}<td class="r"><b>${money(tot)}</b></td></tr>`; }
+  h += `</table></div><div class="m">Toca una celda para registrar o editar el pago de ese mes; toca el depa para ver contrato, vencimiento y forma de pago. "P&L" = el pago se suma al P&L del depa.</div>`;
+  return h;
+};
+function servPayForm(accId, period) {
+  const ex = accId && period ? sPay(accId, period) : null, A = sAcc().filter(a => a.active !== false);
+  const a0 = accId || (A.find(a => a.service === S.f.serv.s) || A[0] || {}).id;
+  openForm({ title: ex ? 'Editar pago' : 'Registrar pago',
+    values: ex ? { ...ex, amount: ex.amount == null ? '' : Math.abs(ex.amount), paid_on: ex.paid_on || '', note: ex.note || '', photos: [...(ex.photos || [])] } : { account_id: a0, period: period || today().slice(0, 7), status: 'pagado', amount: '', paid_on: today(), note: '', photos: [] },
+    fields: v => { const ac = A.find(a => a.id === v.account_id) || {}; return [
+      { k: 'account_id', label: 'Cuenta', type: 'select', options: SERV.flatMap(([s, l]) => A.filter(a => a.service === s).map(a => [a.id, `${l.split(' ')[0]} · ${a.label}`])) },
+      ac.id && { type: 'note', html: [ac.contrato && 'Contrato: <b>' + esc(ac.contrato) + '</b>', ac.extra && esc(ac.extra_label || 'Dato') + ': <b>' + esc(ac.extra) + '</b>', ac.vencimiento && 'Vence: ' + esc(ac.vencimiento), ac.forma_pago && 'Pago: ' + esc(ac.forma_pago)].filter(Boolean).join(' · ') },
+      { k: 'period', label: 'Mes del recibo', type: 'month' }, { k: 'status', label: 'Estado', type: 'select', options: SERV_ST },
+      (v.status === 'pagado' || v.status === 'saldo_favor' || v.status === 'pendiente') && { k: 'amount', label: v.status === 'saldo_favor' ? 'Saldo a favor' : 'Monto', type: 'number' },
+      v.status === 'pagado' && { k: 'paid_on', label: 'Fecha de pago', type: 'date' },
+      { k: 'note', label: 'Nota', type: 'text' }, { k: 'photos', label: 'Recibo / comprobante (opcional)', type: 'photos' }]; },
+    actions: ex ? [{ label: 'Borrar', confirm: true, run: () => del('service_payments', { id: ex.id }, 'Pago borrado') }] : [],
+    save: async v => {
+      if (!v.account_id) return 'Elige la cuenta.'; if (!/^\d{4}-\d{2}$/.test(v.period || '')) return 'Elige el mes.';
+      if (v.status === 'pagado' && !(Number(v.amount) > 0)) return 'Escribe el monto pagado.';
+      const otro = sPay(v.account_id, v.period); if (otro && (!ex || otro.id !== ex.id)) return 'Ese mes ya tiene un registro; tócalo en la tabla para editarlo.';
+      const row = { account_id: v.account_id, period: v.period, status: v.status, amount: v.amount === '' || v.status === 'na' ? null : (v.status === 'saldo_favor' ? -Math.abs(Number(v.amount)) : Number(v.amount)), paid_on: v.status === 'pagado' ? v.paid_on || null : null, note: (v.note || '').trim() || null, photos: v.photos || [] };
+      if (ex) upd('service_payments', { id: ex.id }, row, 'Pago guardado'); else ins('service_payments', { id: uid(), ...row, created_by: S.email }, 'Pago registrado');
+    } });
+}
+function servAccForm(id) {
+  const a = id ? sAcc().find(x => x.id === id) : null;
+  openForm({ title: a ? a.label + ' · ' + (SERV.find(s => s[0] === a.service) || [])[1] : 'Nueva cuenta de servicio',
+    values: a ? { ...a } : { service: S.f.serv.s, label: '', property_code: '', contrato: '', extra: '', vencimiento: '', responsable: 'María', forma_pago: '', to_pnl: 'true', active: 'true' },
+    fields: v => [
+      !a && { k: 'service', label: 'Servicio', type: 'select', options: SERV },
+      { k: 'label', label: 'Propiedad (como aparece en la lista)', type: 'text' },
+      { k: 'property_code', label: 'Depa en la app (para el P&L)', type: 'select', options: [['', '— ninguno —'], ...props().map(p => [p.code, p.code])] },
+      { k: 'contrato', label: v.service === 'gas' ? 'Cliente' : 'Contrato', type: 'text' },
+      v.service !== 'luz' && v.service !== 'mantenimiento' && { k: 'extra', label: { agua: 'Clave', gas: 'Proveedor', internet: 'Proveedor' }[v.service] || 'Dato', type: 'text' },
+      { k: 'vencimiento', label: 'Vencimiento', type: 'text', ph: 'Ej. Día 6 c/2 meses' }, { k: 'responsable', label: 'Responsable de pago', type: 'text' },
+      { k: 'forma_pago', label: 'Forma de pago', type: 'text' },
+      { k: 'to_pnl', label: '¿Se suma al P&L del depa?', type: 'select', options: [['true', 'Sí, lo paga MGM y se carga al P&L'], ['false', 'No (lo paga el dueño u otro)']] },
+      a && { k: 'active', label: 'Estado', type: 'select', options: [['true', 'Activa'], ['false', 'Dada de baja (se conserva el histórico)']] }],
+    actions: a ? [{ label: 'Borrar cuenta e histórico', confirm: true, run: () => del('service_accounts', { id: a.id }, 'Cuenta borrada') }] : [],
+    save: async v => {
+      if (!(v.label || '').trim()) return 'Escribe la propiedad.';
+      const row = { label: v.label.trim(), property_code: v.property_code || null, contrato: (v.contrato || '').trim() || null, extra: (v.extra || '').trim() || null, extra_label: { agua: 'Clave', gas: 'Proveedor', internet: 'Proveedor' }[v.service] || null,
+        vencimiento: (v.vencimiento || '').trim() || null, responsable: (v.responsable || '').trim() || null, forma_pago: (v.forma_pago || '').trim() || null, to_pnl: String(v.to_pnl) === 'true', active: String(v.active) !== 'false' };
+      if (a) upd('service_accounts', { id: a.id }, row, 'Cuenta guardada'); else ins('service_accounts', { id: uid(), service: v.service, sort: 999, ...row }, 'Cuenta agregada');
+    } });
+}
+async function exportServicios() {
+  try {
+    const X = await excelJS(), wb = new X.Workbook(), ws = wb.addWorksheet('Servicios ' + S.f.serv.y), y = S.f.serv.y;
+    const MESL = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const head = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F4F43' } } };
+    ws.columns = [{ width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 16 }, { width: 18 }, ...Array(24).fill(0).map((_, i) => ({ width: i % 2 ? 12 : 10 }))];
+    ws.addRow(['PAGOS DE SERVICIOS ' + y]).font = { bold: true, size: 14 };
+    for (const [s, l] of SERV) {
+      ws.addRow([]); const t = ws.addRow([l.toUpperCase(), '', '', '', '', '', ...MESL.flatMap(m => [m, ''])]); t.font = { bold: true };
+      const hr = ws.addRow(['Propiedad', s === 'gas' ? 'Cliente' : 'Contrato', { agua: 'Clave', gas: 'Proveedor', internet: 'Proveedor' }[s] || '', 'Vencimiento', 'Responsable de pago', 'Forma de pago', ...MESL.flatMap(() => ['Monto', 'Fecha de pago'])]);
+      hr.eachCell(c => Object.assign(c, head));
+      for (const a of sAcc().filter(a => a.service === s)) ws.addRow([a.label, a.contrato || 'N/A', a.extra || '', a.vencimiento || '', a.responsable || '', a.forma_pago || '', ...MESL.flatMap((_, i) => { const p = sPay(a.id, `${y}-${String(i + 1).padStart(2, '0')}`);
+        if (!p) return [0, 'N/A']; if (p.status === 'na') return ['N/A', 'N/A']; if (p.status === 'saldo_favor') return [Number(p.amount) || 0, 'Saldo a favor']; if (p.status === 'pendiente') return [Number(p.amount) || 0, 'Pendiente'];
+        return [Number(p.amount) || 0, p.paid_on ? new Date(p.paid_on + 'T12:00:00') : (p.note || '')]; })]);
+    }
+    ws.eachRow(r => r.eachCell(c => { if (c.value instanceof Date) c.numFmt = 'dd/mm/yyyy'; else if (typeof c.value === 'number') c.numFmt = '"$"#,##0.00'; }));
+    saveFile(new Blob([await wb.xlsx.writeBuffer()], { type: XLSX_MIME }), 'MGM_servicios_' + y + '.xlsx');
+  } catch (e) { toast(e.message); }
+}
 VIEWS.ligas = () => props().map(p => `<div class="card"><div class="row"><span class="dp">${esc(p.code)}</span><span class="sp"></span>${p.airbnb_url ? `<a href="${esc(p.airbnb_url)}" target="_blank" rel="noopener">Abrir</a>` : ''}<button class="${p.airbnb_url ? 'pri' : ''}" data-copyurl="${esc(p.code)}" ${p.airbnb_url ? '' : 'disabled'}>Copiar</button></div><input style="width:100%;margin-top:8px" type="url" inputmode="url" placeholder="https://airbnb.mx/h/…" data-url="${esc(p.code)}" value="${esc(p.airbnb_url || '')}"></div>`).join('');
 
 // ---------- PERFIL ----------
@@ -973,7 +1073,7 @@ $('avatar').addEventListener('click', () => go('perfil'));
 window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (t && t !== S.tab) { S.tab = t; render(); } });
 
 $('view').addEventListener('click', async e => {
-  const el = e.target.closest('button,[data-res],[data-tx],[data-task],[data-buy],[data-extra]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('button,[data-res],[data-tx],[data-task],[data-buy],[data-extra],[data-servpay],[data-servacc]'); if (!el) return; const d = el.dataset;
   if (d.asig) return sheetAsignar(d.asig);
   if (d.extra) return extraForm(d.extra);
   if (d.newextra) return extraForm(null);
@@ -999,6 +1099,11 @@ $('view').addEventListener('click', async e => {
   }
   if (d.cajmes) { const [y, m] = (S.cajMes || S.dia.slice(0, 7)).split('-').map(Number), dt = new Date(y, m - 1 + Number(d.cajmes), 1); S.cajMes = ymd(dt).slice(0, 7); return render(); }
   if (d.apdel) return del('parking_loans', { id: d.apdel }, 'Apartado quitado');
+  if (d.servs) { S.f.serv.s = d.servs; return render(); }
+  if (d.servy) { S.f.serv.y = String(+S.f.serv.y + Number(d.servy)); return render(); }
+  if (d.servx) return exportServicios();
+  if (d.servpay !== undefined) { const [a, p] = d.servpay.split('|'); return servPayForm(a || null, p || null); }
+  if (d.servacc !== undefined) return servAccForm(d.servacc || null);
   if (d.cajf !== undefined) { S.cajF = S.cajF === d.cajf ? '' : d.cajf; return render(); }
   if (d.supq) { const q = new Set(setting('sup_quitar', [])); q.has(d.supq) ? q.delete(d.supq) : q.add(d.supq); return ups('settings', { key: 'sup_quitar', value: [...q] }, ['key'], q.has(d.supq) ? 'Supervisión quitada en esa unidad' : 'Supervisión devuelta'); }
   if (d.supset) { const [k, f] = d.supset.split('|'), C = { ...supConf() }; C[k] = { team: [], monto: 30, ...(C[k] || {}) };
@@ -1040,6 +1145,7 @@ $('view').addEventListener('change', e => {
     C[k] = { ...C[k], team: [...T] }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Equipo actualizado'); }
   if (d.supmonto) { const C = { ...supConf() }; C[d.supmonto] = { ...C[d.supmonto], monto: Number(t.value) || 0 }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Monto guardado'); }
   if (d.supnew !== undefined) { if (!t.value) return; const C = { ...supConf(), [t.value]: { team: [], monto: 30 } }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Supervisora agregada'); }
+  if (t.id === 'servQ') { S.f.serv.q = t.value.trim(); return render(); }
   if (d.pq) return pnlSet(d.pq, t.value);
   if (d.pqm) { const cur = new Set(pnlRow().data[d.pqm] || []); t.checked ? cur.add(t.value) : cur.delete(t.value); return pnlSet(d.pqm, [...cur]); }
   if (d.pqt) return pnlSet(d.pqt, t.value);
