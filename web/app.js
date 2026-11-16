@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '34';
+const APP_VER = '35';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -968,7 +968,7 @@ VIEWS.servicios = () => {
   const F = S.f.serv || (S.f.serv = { s: 'luz', y: mesAnt().slice(0, 4), q: '', solo: '' }), mesHoy = today().slice(0, 7);
   let h = `<div class="seg" style="margin-bottom:8px;overflow-x:auto;white-space:nowrap">${SERV.map(([k, l]) => `<button data-servs="${k}" class="${F.s === k ? 'on' : ''}">${l.split(' ')[0]}</button>`).join('')}</div>
     <div class="nav"><button data-servy="-1">‹</button><div class="d">${F.y}</div><button data-servy="1">›</button><button data-servx="1">Excel</button></div>
-    <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro este mes</option><option value="pend" ${F.solo === 'pend' ? 'selected' : ''}>Con pendientes</option></select></div>
+    <div class="row" style="gap:6px;margin-bottom:8px"><input id="servQ" placeholder="Buscar depa…" value="${esc(F.q)}" style="flex:1"><select data-f="serv|solo"><option value="">Todos</option><option value="mgm" ${F.solo === 'mgm' ? 'selected' : ''}>Los paga MGM</option><option value="falta" ${F.solo === 'falta' ? 'selected' : ''}>Sin registro este mes</option><option value="pend" ${F.solo === 'pend' ? 'selected' : ''}>Con pendientes</option><option value="pagmes" ${F.solo === 'pagmes' ? 'selected' : ''}>Pagados este mes</option><option value="paganio" ${F.solo === 'paganio' ? 'selected' : ''}>Con pagos en el año</option></select></div>
     <div class="row" style="gap:8px;margin-bottom:10px"><button class="pri sp" data-servpay="">＋ Registrar pago</button><button data-servacc="">＋ Cuenta</button><button data-servedit="1" class="${F.edit ? 'on pri' : ''}">${F.edit ? 'Listo' : 'Ocultar'}</button></div>`;
   const OC = new Set(setting('serv_ocultos', []));
   let A = sAcc().filter(a => a.service === F.s && a.active !== false);
@@ -979,10 +979,12 @@ VIEWS.servicios = () => {
   if (F.solo === 'mgm') A = A.filter(esMgm);
   if (F.solo === 'falta') A = A.filter(a => esMgm(a) && !sPay(a.id, mesHoy));
   if (F.solo === 'pend') A = A.filter(a => pendientesDe(a, F.y).length);
+  if (F.solo === 'pagmes') A = A.filter(a => (sPay(a.id, mesHoy) || {}).status === 'pagado');
+  if (F.solo === 'paganio') A = A.filter(a => (S.t.service_payments || []).some(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado'));
   const pagMes = A.reduce((t, a) => { const p = sPay(a.id, mesHoy); return t + (p && p.status === 'pagado' ? Number(p.amount) || 0 : 0); }, 0);
   const pagAnio = A.reduce((t, a) => t + (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0), 0);
   const pend = A.reduce((t, a) => t + pendientesDe(a, F.y).length, 0);
-  h += `<div class="kpis"><div class="kpi"><div class="v">${money(pagMes)}</div><div class="l">Pagado ${MES3[+mesHoy.slice(5) - 1].toLowerCase()}</div></div><div class="kpi"><div class="v">${money(pagAnio)}</div><div class="l">Pagado ${F.y}</div></div><button class="kpi ${pend ? 'alert' : ''} ${F.solo === 'pend' ? 'sel' : ''}" data-servpend="1"><div class="v">${pend}</div><div class="l">Pendientes ›</div></button></div>`;
+  h += `<div class="kpis"><button class="kpi ${F.solo === 'pagmes' ? 'sel' : ''}" data-servk="pagmes"><div class="v">${money(pagMes)}</div><div class="l">Pagado ${MES3[+mesHoy.slice(5) - 1].toLowerCase()} ›</div></button><button class="kpi ${F.solo === 'paganio' ? 'sel' : ''}" data-servk="paganio"><div class="v">${money(pagAnio)}</div><div class="l">Pagado ${F.y} ›</div></button><button class="kpi ${pend ? 'alert' : ''} ${F.solo === 'pend' ? 'sel' : ''}" data-servpend="1"><div class="v">${pend}</div><div class="l">Pendientes ›</div></button></div>`;
   if (F.edit) h += `<div class="warn" style="margin-bottom:8px">Toca el ojo de cada depa para ocultarlo o mostrarlo en ${esc(SERV.find(x => x[0] === F.s)[1])}. Al terminar toca <b>Listo</b>.</div>`;
   else if (nOc) h += `<div class="row" style="margin-bottom:6px"><span class="m sp">${nOc} depa(s) oculto(s) en esta pestaña</span><button data-servedit="1">Ver / editar</button></div>`;
   if (!A.length) return h + '<div class="card empty">Sin cuentas.</div>';
@@ -1152,6 +1154,7 @@ $('view').addEventListener('click', async e => {
   if (d.servs) { S.f.serv.s = d.servs; S.servScroll = true; return render(); }
   if (d.servy) { S.f.serv.y = String(+S.f.serv.y + Number(d.servy)); return render(); }
   if (d.servx) return exportServicios();
+  if (d.servk) { S.f.serv.solo = S.f.serv.solo === d.servk ? '' : d.servk; return render(); }
   if (d.servpend) { S.f.serv.solo = S.f.serv.solo === 'pend' ? '' : 'pend'; return render(); }
   if (d.servedit) { S.f.serv.edit = !S.f.serv.edit; return render(); }
   if (d.servhide) { const o = new Set(setting('serv_ocultos', [])); o.has(d.servhide) ? o.delete(d.servhide) : o.add(d.servhide); return ups('settings', { key: 'serv_ocultos', value: [...o] }, ['key']); }
