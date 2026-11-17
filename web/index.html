@@ -11,9 +11,31 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@1,600;1,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=41">
+<script>
+/* Anti pantalla en blanco (iPhone/WebKit): si la app no arranca en 10 s o falla al cargar,
+   muestra un botón de rescate que borra la caché de la app y recarga. ?reset=1 hace lo mismo directo. */
+(function () {
+  var ok = false; window.__mgmOK = function () { ok = true; var r = document.getElementById('rescate'); if (r) r.remove(); };
+  async function limpiar() {
+    try { var rs = await navigator.serviceWorker.getRegistrations(); for (var r of rs) await r.unregister(); } catch (e) {}
+    try { var ks = await caches.keys(); for (var k of ks) await caches.delete(k); } catch (e) {}
+    location.replace(location.pathname + '?fresh=' + Date.now() + location.hash);
+  }
+  window.__mgmLimpiar = limpiar;
+  if (/[?&]reset=1/.test(location.search)) { limpiar(); return; }
+  function rescate(motivo) {
+    if (ok || document.getElementById('rescate')) return;
+    var d = document.createElement('div'); d.id = 'rescate';
+    d.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#23272a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px;text-align:center;font:16px -apple-system,Helvetica,Arial,sans-serif';
+    d.innerHTML = '<div style="font-size:20px;font-weight:700">La app no terminó de cargar</div><div style="opacity:.8;max-width:320px">Suele pasar en iPhone cuando se queda guardada una versión vieja o la red falla. Toca el botón para limpiar y volver a cargar (no se pierde ningún dato).</div><button style="font-size:17px;padding:14px 22px;border-radius:12px;border:0;background:#2f4f43;color:#fff;font-weight:700">Recargar app</button><div style="opacity:.5;font-size:12px">' + (motivo || '') + '</div>';
+    d.querySelector('button').onclick = limpiar; (document.body || document.documentElement).appendChild(d);
+  }
+  window.__mgmRescate = rescate;
+  window.addEventListener('error', function (e) { if (!ok && e && (e.message || (e.target && e.target.src))) setTimeout(function () { rescate('Error al cargar: ' + (e.message || e.target.src)); }, 1500); }, true);
+  setTimeout(function () { rescate('Tiempo de espera agotado'); }, 10000);
+})();
+</script>
 </head>
 <body>
   <div id="login" class="login" hidden>
@@ -42,9 +64,9 @@
     <div id="toast" class="toast" hidden></div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js"></script>
-  <script src="mgmx.js"></script>
-  <script src="app.js"></script>
+  <script src="vendor/supabase-2.119.0.js"></script>
+  <script src="config.js?v=41"></script>
+  <script src="mgmx.js?v=41"></script>
+  <script src="app.js?v=41"></script>
 </body>
 </html>

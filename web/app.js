@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '40';
+const APP_VER = '41';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -190,7 +190,7 @@ async function start() {
     setInterval(chk, 10 * 60 * 1000); chk();
   }
 }
-function showLogin() { S.email = null; $('shell').hidden = true; $('login').hidden = false; }
+function showLogin() { S.email = null; $('shell').hidden = true; $('login').hidden = false; window.__mgmOK && window.__mgmOK(); }
 $('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
   const err = await DB.sendCode($('email').value.trim().toLowerCase());
@@ -205,9 +205,11 @@ $('codeForm').addEventListener('submit', async e => {
 if (CFG.GOOGLE) { $('btnGoogle').hidden = false; $('orLine').textContent = 'o con un código a tu correo'; }
 $('btnGoogle').addEventListener('click', async () => { const err = await DB.google(); if (err) $('loginMsg').textContent = 'Error: ' + err; });
 async function boot(email) {
-  S.email = email; $('login').hidden = true; $('shell').hidden = false;
+  S.email = email; $('login').hidden = true; $('shell').hidden = false; window.__mgmOK && window.__mgmOK();
   $('view').innerHTML = '<div class="empty">Cargando…</div>';
+  const lento = setTimeout(() => { if ($('view').textContent.trim() === 'Cargando…') $('view').innerHTML = '<div class="card" style="text-align:center"><b>Está tardando en cargar</b><div class="m" style="margin:8px 0 12px">Puede ser la señal o una versión vieja guardada en el teléfono.</div><div class="row" style="gap:8px;justify-content:center"><button onclick="location.reload()">Reintentar</button><button class="pri" onclick="window.__mgmLimpiar && window.__mgmLimpiar()">Limpiar y recargar</button></div></div>'; }, 15000);
   const res = await Promise.all(TABLES.map(t => DB.load(t)));
+  clearTimeout(lento);
   S.falta = new Set(); TABLES.forEach((t, i) => { S.t[t] = res[i].rows || []; if (!res[i].rows) S.falta.add(t); });
   S.me = S.t.app_users.find(u => (u.email || '').toLowerCase() === email.toLowerCase()) || null;
   if (S.me && DB.touch) DB.touch();

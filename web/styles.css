@@ -1,3 +1,10 @@
+/* Fuentes locales (sin depender de Google Fonts) */
+@font-face{font-family:'Outfit';font-style:normal;font-weight:400;font-display:swap;src:url(fonts/outfit-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Outfit';font-style:normal;font-weight:500;font-display:swap;src:url(fonts/outfit-latin-500-normal.woff2) format('woff2')}
+@font-face{font-family:'Outfit';font-style:normal;font-weight:600;font-display:swap;src:url(fonts/outfit-latin-600-normal.woff2) format('woff2')}
+@font-face{font-family:'Outfit';font-style:normal;font-weight:700;font-display:swap;src:url(fonts/outfit-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Cormorant Garamond';font-style:italic;font-weight:600;font-display:swap;src:url(fonts/cormorant-garamond-latin-600-italic.woff2) format('woff2')}
+@font-face{font-family:'Cormorant Garamond';font-style:italic;font-weight:700;font-display:swap;src:url(fonts/cormorant-garamond-latin-700-italic.woff2) format('woff2')}
 :root{--bg:#f4f3ef;--card:#fff;--ink:#1b1b19;--mute:#6d6c67;--line:#e4e2db;--acc:#1f4e5f;--acc2:#e6eff2;
 --alta:#1e7d4f;--altabg:#e3f3ea;--baja:#b3261e;--bajabg:#fbe8e6;--cambio:#9a6200;--cambiobg:#fdf1d8;
 --safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px)}
