@@ -404,6 +404,11 @@ Deno.serve(async (req: Request) => {
         const { data, error } = await sb.rpc("bk_schema"); if (error) throw error;
         return new Response(String(data), { headers: { "content-type": "text/plain; charset=utf-8" } });
       }
+      if (tipo === "claves") { // solo para el paquete semanal de Drive
+        const rows = (await loadAll("access_codes")) as { place: string; code1?: string; code2?: string }[];
+        const q = (v?: string) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+        return new Response("\uFEFFLugar,Clave 1,Clave 2\n" + rows.map((r) => [r.place, r.code1, r.code2].map(q).join(",")).join("\n"), { headers: { "content-type": "text/csv; charset=utf-8" } });
+      }
       if (tipo === "fotos") { // rutas de comprobantes (gastos y servicios) con liga firmada de 2 h para que el script las copie a Drive
         const paths = new Set<string>();
         for (const t of ["transactions", "service_payments"]) for (const r of (await loadAll(t)) as { photos?: string[] }[]) for (const ph of r.photos || []) if (typeof ph === "string" && ph) paths.add(ph);

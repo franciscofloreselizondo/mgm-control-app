@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '44';
+const APP_VER = '45';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -372,6 +372,7 @@ $('sheet').addEventListener('submit', async e => {
   const err = await F.save(F.v);
   if (err) { const x = $('frmErr'); x.textContent = err; x.hidden = false; } else closeSheet();
 });
+$('sheet').addEventListener('change', e => { const t = e.target; if (t.id === 'waD') { S.waD = t.value; sheetAsigWA(); } else if (t.id === 'waClv') { S.waClv = t.checked; sheetAsigWA(); } });
 $('sheet').addEventListener('click', async e => {
   if (e.target.id === 'sheet') return closeSheet();
   const img = e.target.closest('img[data-phi]'); if (img) { $('viewerImg').src = img.src; $('viewer').hidden = false; return; }
@@ -381,6 +382,7 @@ $('sheet').addEventListener('click', async e => {
   if (d.act !== undefined && F) { const a = F.actions[+d.act]; if (a.confirm && !confirmTap(b)) return; const v = F.v; closeSheet(); return a.run(v); }
   if (d.pick !== undefined) { closeSheet(); return upd('reservations', { id: d.id }, { cleaner_key: d.pick || null }, d.pick ? 'Asignado a ' + nombre(d.pick) : 'Sin asignar'); }
   if (d.editres) { closeSheet(); return resForm(d.editres); }
+  if (d.wacopy) { const t = $('waTxt').value; try { await navigator.clipboard.writeText(t); toast('Copiado, pégalo en WhatsApp'); } catch (_) { $('waTxt').select(); document.execCommand('copy'); toast('Copiado'); } return; }
   if (d.wapl) { S.waTit = $('waTit').value; S.waPie = $('waPie').value; S.waSel.has(d.wapl) ? S.waSel.delete(d.wapl) : S.waSel.add(d.wapl); return sheetWA(); }
   if (d.wa) { S.waTit = $('waTit').value; S.waPie = $('waPie').value; const L = clavesConCodigo().map(x => x.pl); S.waSel = new Set(d.wa === 'todos' ? L : d.wa === 'qalina' ? L.filter(x => x === 'Bodega Qalina' || (prop(x) || {}).building === 'Qalina') : []); return sheetWA(); }
   if (d.wagen) { S.waTit = $('waTit').value.trim() || 'CONTRASEÑAS DEPARTAMENTOS'; S.waPie = $('waPie').value.trim(); return crearImagenWA(); }
@@ -535,10 +537,32 @@ function sheetLibres(d) {
   sheet(`<h3>Libres esta noche</h3>${L.length ? L.map(({ p, n }) => `<div class="card"><div class="row"><span class="dp">${esc(p.code)}</span><span class="sp"></span>${n && n.checkin === d ? '<span class="b alta">ENTRA HOY</span>' : ''}</div><div class="m">${n ? `Próxima entrada: ${fmt(n.checkin)} · ${esc(n.guest)}` : 'Sin reservas próximas'}</div></div>`).join('') : '<div class="empty">Ninguno, todo ocupado.</div>'}
     <div class="row" style="margin-top:10px"><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
 }
+// ---------- Asignaciones del día para WhatsApp (María copia y pega mientras toma confianza) ----------
+function textoAsignaciones(d, conClaves) {
+  const P = new Set(props().filter(p => p.cleaning !== false).map(p => p.code)), act = activas();
+  const L = [...act.filter(r => r.checkout === d && P.has(r.property_code)).map(r => ({ k: r.cleaner_key, dp: r.property_code, t: 'Salida', ent: act.find(x => x.property_code === r.property_code && x.checkin === d) })),
+    ...S.t.cleanings.filter(x => x.date === d && P.has(x.property_code)).map(x => ({ k: x.cleaner_key, dp: x.property_code, t: 'Limpieza extra' + (x.note ? ' (' + x.note + ')' : '') }))];
+  const by = {}; L.forEach(x => (by[x.k || ''] = by[x.k || ''] || []).push(x));
+  const fecha = fmt(d);
+  const clave = c => { const a = S.t.access_codes.find(x => x.place === c); return a && (a.code1 || a.code2) ? ' · clave ' + [a.code1, a.code2].filter(Boolean).join(' / ') : ''; };
+  const bloque = k => `*${k ? nombre(k) : 'SIN ASIGNAR'}* · ${fecha}\n` + by[k].map(x => `• ${x.dp} – ${x.t}${x.ent ? ' · entra huésped hoy' : ''}${conClaves ? clave(x.dp) : ''}`).join('\n');
+  const keys = Object.keys(by).sort((a, b) => (a ? nombre(a) : 'zz').localeCompare(b ? nombre(b) : 'zz'));
+  return { keys, fecha, total: L.length, todo: keys.length ? `🧹 *Limpiezas ${fecha}*\n\n` + keys.map(bloque).join('\n\n') : `Sin limpiezas el ${fecha}.`, bloque };
+}
+function sheetAsigWA() {
+  S.waD = S.waD || add(today(), 1); const T = textoAsignaciones(S.waD, S.waClv);
+  sheet(`<h3>Asignaciones para WhatsApp</h3>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><label class="m">Día <input type="date" id="waD" value="${S.waD}"></label><label class="m"><input type="checkbox" id="waClv" ${S.waClv ? 'checked' : ''}> Incluir claves</label><span class="sp"></span><span class="m">${T.total} limpieza(s)</span></div>
+    <textarea id="waTxt" rows="9" style="width:100%;margin-top:10px;font-size:14px">${esc(T.todo)}</textarea>
+    <div class="row" style="gap:8px;margin-top:8px"><button class="pri sp" data-wacopy="1">Copiar todo</button><a class="btn" href="https://wa.me/?text=${encodeURIComponent(T.todo)}" target="_blank" rel="noopener">Abrir en WhatsApp</a></div>
+    ${T.keys.length > 1 ? `<div class="m" style="margin:12px 0 6px">O manda a cada chica su parte:</div>${T.keys.map(k => `<div class="row" style="margin-bottom:6px"><span class="sp">${esc(k ? nombre(k) : 'Sin asignar')}</span><a class="btn" href="https://wa.me/?text=${encodeURIComponent(T.bloque(k))}" target="_blank" rel="noopener">WhatsApp</a></div>`).join('')}` : ''}
+    <div class="row" style="margin-top:10px"><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
+}
 VIEWS.hoy = () => {
   const P = pendientes(), d = today(), act = activas();
   const salen = act.filter(r => r.checkout === d), entran = act.filter(r => r.checkin === d), occ = ocupadas(d), lib = libres(d);
   let h = `<div class="m" style="margin-bottom:8px">${fmt(d)}</div><div class="kpis k4"><button class="kpi" data-hoy="sale"><div class="v">${salen.length}</div><div class="l">Salen hoy ›</div></button><button class="kpi" data-hoy="entra"><div class="v">${entran.length}</div><div class="l">Entran hoy ›</div></button><button class="kpi" data-hoy="occ"><div class="v">${occ.length}</div><div class="l">Ocupados ›</div></button><button class="kpi" data-hoy="libre"><div class="v">${lib.length}</div><div class="l">Libres ›</div></button></div>`;
+  if (isSuper()) h += `<div class="row" style="margin:12px 0 4px"><button class="sp" data-asigwa="1">📲 Asignaciones de mañana para WhatsApp</button></div>`;
   h += '<h2>Limpiezas por asignar · próximos 7 días</h2>';
   h += P.limpiezas.length ? P.limpiezas.map(r => `<div class="card row"><div class="sp"><div><span class="dp">${esc(r.dp)}</span> · ${fmt(r.f)}${r.f === d ? ' <span class="b baja">HOY</span>' : ''}</div><div class="m">${esc(r.txt)}</div></div><button class="pri" ${r.extra ? 'data-extra' : 'data-asig'}="${r.id}">Asignar</button></div>`).join('') : '<div class="card empty">Todo asignado ✓</div>';
   if (P.cajones.length) h += '<h2>Autos sin cajón</h2>' + P.cajones.map(r => `<div class="card row"><div class="sp"><div><span class="dp">${esc(r.property_code)}</span> · ${esc(r.guest)}</div><div class="m">${fmt(r.checkin)} → ${fmt(r.checkout)}</div></div><button class="pri" data-res="${r.id}">Asignar cajón</button></div>`).join('');
@@ -1284,6 +1308,7 @@ $('view').addEventListener('click', async e => {
   if (d.suppdel) return ups('settings', { key: 'sup_pausas', value: setting('sup_pausas', []).filter(p => p.id !== d.suppdel) }, ['key'], 'Pausa quitada');
   if (d.usrtab) { S.usrTab = d.usrtab; return render(); }
   if (d.waopen) return sheetWA();
+  if (d.asigwa) return sheetAsigWA();
   if (d.undo) return deshacer();
   if (d.pnlq) { const x = $('pnlQ').value.trim(); if (!x) return toast('Escribe tu pregunta'); return ins('pnl_beta', { id: uid(), data: { texto: x }, updated_by: S.email, updated_at: new Date().toISOString() }, 'Pregunta enviada'); }
   if (d.pnldel) return del('pnl_beta', { id: d.pnldel }, 'Pregunta borrada');

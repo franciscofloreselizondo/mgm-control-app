@@ -211,3 +211,4 @@ label.chip{display:inline-block;border:1px solid var(--line);background:var(--ca
 .permt th.dpc{position:sticky;left:0;background:var(--card);text-align:left;white-space:normal;min-width:130px;z-index:1}
 .permt td.no{color:#b7bcbe}
 .svt th.dpc small.nserv{font-family:ui-monospace,Menlo,monospace;letter-spacing:.2px;white-space:normal;word-break:break-all}
+a.btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-decoration:none;font-weight:600}

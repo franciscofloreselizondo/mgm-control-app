@@ -46,6 +46,7 @@ function subirRespaldo() {
 function paqueteSemanal() {
   const hoy = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'), blobs = [];
   blobs.push(Utilities.newBlob(pedir('esquema').getContentText(), 'text/plain', 'esquema.sql'));
+  blobs.push(Utilities.newBlob(pedir('claves').getContentText(), 'text/csv', 'claves.csv'));
   const web = ['index.html', 'app.js', 'mgmx.js', 'styles.css', 'sw.js', 'config.js', 'version.json', 'manifest.webmanifest', 'vendor/supabase-2.119.0.js'];
   web.forEach(f => { const r = UrlFetchApp.fetch(SITIO + f, { muteHttpExceptions: true }); if (r.getResponseCode() === 200) blobs.push(r.getBlob().setName('web/' + f)); });
   ['supabase/functions/daily-backup/index.ts', 'tools/drive_backup.gs', 'bump.sh', 'PROTECCION_PANTALLA_BLANCA.md'].forEach(f => { const r = UrlFetchApp.fetch(REPO + f, { muteHttpExceptions: true }); if (r.getResponseCode() === 200) blobs.push(r.getBlob().setName(f)); });
@@ -70,7 +71,7 @@ function limpiar(dest, prefijo, dias) {
 }
 const LEEME = `MGM Control App · cómo restaurar (paquete del {FECHA})
 
-Contenido: esquema.sql (estructura completa de la base, generada en vivo), web/ (la app tal como está publicada),
+Contenido: claves.csv (claves de puertas, solo viajan aquí), esquema.sql (estructura completa de la base, generada en vivo), web/ (la app tal como está publicada),
 supabase/functions/daily-backup/index.ts (función de respaldo), tools/drive_backup.gs (este script).
 Los datos están en el Excel MGM_respaldo_*.xlsx más reciente y las fotos en Respaldos app/Comprobantes.
 
