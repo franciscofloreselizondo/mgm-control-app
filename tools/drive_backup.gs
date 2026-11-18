@@ -18,12 +18,18 @@ function instalar() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('cadaHora').timeBased().everyHours(1).create();
   ScriptApp.newTrigger('paqueteSemanal').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).inTimezone(TZ).create();
+  ScriptApp.newTrigger('correosAirbnb').timeBased().everyMinutes(30).create();
   subirRespaldo(); paqueteSemanal(); copiarFotos();
 }
 function cadaHora() {
   const h = Number(Utilities.formatDate(new Date(), TZ, 'H'));
   if (HORAS.indexOf(h) >= 0) subirRespaldo();
   if (h === 23) copiarFotos();
+}
+// Correos de Airbnb cada 30 min (trigger propio). Ejecutar una vez para crearlo.
+function instalarCorreos() {
+  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'correosAirbnb').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('correosAirbnb').timeBased().everyMinutes(30).create();
   correosAirbnb();
 }
 // Fase 2 · B: correos de Airbnb que María reenvía a esta cuenta → nombre del huésped y monto en la app.

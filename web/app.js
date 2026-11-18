@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '48';
+const APP_VER = '49';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -1203,7 +1203,7 @@ const PERM = [
 const ROL_N = { superadmin: 'Superadmin', socio: 'Socio', finanzas: 'Finanzas' };
 const haceCuanto = ts => { if (!ts) return 'Nunca ha entrado'; const m = Math.round((Date.now() - new Date(ts)) / 60000);
   return m < 2 ? 'Ahora' : m < 60 ? `Hace ${m} min` : m < 1440 ? `Hace ${Math.round(m / 60)} h` : m < 2880 ? 'Ayer' : `Hace ${Math.round(m / 1440)} días`; };
-const AUTOS = [['ical', '🔄 Reservas desde Airbnb (iCal)', 'Cada hora: altas, cambios de fechas y cancelaciones'], ['correos', '✉️ Correos de Airbnb', 'Cada hora: nombre del huésped y monto'],
+const AUTOS = [['ical', '🔄 Reservas desde Airbnb (iCal)', 'Cada 30 min: altas, cambios de fechas y cancelaciones'], ['correos', '✉️ Correos de Airbnb', 'Cada 30 min: nombre del huésped y monto'],
   ['resp_correo', '📧 Respaldo diario por correo', 'Todos los días 10 pm'], ['resp_drive', '☁️ Respaldo en Drive', 'Cada 4 h + paquete del lunes + fotos'], ['claves', '🔑 Pendientes de cambio de clave', 'Cada 3 meses, uno por depa']];
 const autos = () => ({ on: true, ...(setting('automatizaciones', {}) || {}) });
 VIEWS.usuarios = () => {
@@ -1373,7 +1373,7 @@ $('view').addEventListener('change', e => {
   if (d.code) { const [place, f] = d.code.split('|'); const cur = S.t.access_codes.find(x => x.place === place) || { place, code1: null, code2: null }; return ups('access_codes', { ...cur, [f]: t.value.trim() || null }, ['place'], 'Clave guardada'); }
   if (d.url !== undefined) return upd('properties', { code: d.url }, { airbnb_url: t.value.trim() || null }, 'Liga guardada');
   if (d.auto) { const A = { ...autos(), [d.auto]: t.checked, by: S.me.name || S.me.email, at: new Date().toISOString() }; return ups('settings', { key: 'automatizaciones', value: A }, ['key'], d.auto === 'on' ? (t.checked ? 'Automatizaciones prendidas' : 'Todo en pausa') : (t.checked ? 'Prendida' : 'En pausa')); }
-  if (d.ical !== undefined) { const v = t.value.trim(); if (v && !/^https:\/\/[^ ]+\.ics/i.test(v)) return toast('Esa liga no parece de calendario (.ics)'); return upd('properties', { code: d.ical }, { ical_url: v || null }, v ? 'Calendario guardado · se sincroniza cada hora' : 'Calendario quitado'); }
+  if (d.ical !== undefined) { const v = t.value.trim(); if (v && !/^https:\/\/[^ ]+\.ics/i.test(v)) return toast('Esa liga no parece de calendario (.ics)'); return upd('properties', { code: d.ical }, { ical_url: v || null }, v ? 'Calendario guardado · se sincroniza cada 30 min' : 'Calendario quitado'); }
 });
 
 // maqueta: cambiar rol / cargar ejemplos
