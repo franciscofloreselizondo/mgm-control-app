@@ -313,8 +313,20 @@ async function loadAll(t: string) {
 }
 const setting = (D: Record<string, unknown[]>, k: string) => (D.settings as { key: string; value: unknown }[]).find((s) => s.key === k)?.value;
 
-Deno.serve(async () => {
+Deno.serve(async (req: Request) => {
   try {
+    // Modo archivo (para el Apps Script que sube el respaldo a Google Drive cada 4 h):
+    // GET ?file=1 con header x-mgm-key = secret BACKUP_DRIVE_KEY → devuelve el .xlsx, sin correo.
+    const url = new URL(req.url);
+    if (url.searchParams.get("file") === "1") {
+      const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
+      if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });
+      const D: Record<string, unknown[]> = {};
+      for (const t of TABLES) D[t] = await loadAll(t);
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
+      const wb = MGMX.buildBackup(ExcelJS, D, today, { claves: setting(D, "backup_claves") === true });
+      return new Response(await wb.xlsx.writeBuffer(), { headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" } });
+    }
     if (!BREVO_KEY) return Response.json({ error: "Falta el secret BREVO_API_KEY" }, { status: 500 });
     const D: Record<string, unknown[]> = {};
     for (const t of TABLES) D[t] = await loadAll(t);
@@ -341,7 +353,7 @@ Deno.serve(async () => {
         subject: `Respaldo MGM Control App · ${today}`,
         htmlContent: `<div style="font-family:Arial,sans-serif;font-size:15px;color:#23272a"><p><b>Respaldo diario de MGM Control App</b> al ${today}.</p>
 <p>${activas} reservas activas · ${D.transactions.length} gastos e ingresos · ${D.tasks.length} pendientes · ${D.purchases.length} compras.</p>
-<p>El Excel adjunto trae una hoja por pestaña; las primeras son el calendario (mes anterior, actual y siguiente) en el formato de siempre.</p></div>`,
+<p>El Excel adjunto empieza con las vistas para leer rápido (Resumen del día, calendarios, pendientes, nómina de la semana, gastos por depa y servicios) y al final trae las hojas "BD" con toda la información.</p></div>`,
         attachment: [{ name: `MGM_respaldo_${today}.xlsx`, content }],
       }),
     });
