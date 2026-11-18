@@ -399,6 +399,19 @@ Deno.serve(async (req: Request) => {
     if (url.searchParams.get("file") === "1") {
       const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
       if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });
+      const tipo = url.searchParams.get("tipo") || "datos";
+      if (tipo === "esquema") {
+        const { data, error } = await sb.rpc("bk_schema"); if (error) throw error;
+        return new Response(String(data), { headers: { "content-type": "text/plain; charset=utf-8" } });
+      }
+      if (tipo === "fotos") { // rutas de comprobantes (gastos y servicios) con liga firmada de 2 h para que el script las copie a Drive
+        const paths = new Set<string>();
+        for (const t of ["transactions", "service_payments"]) for (const r of (await loadAll(t)) as { photos?: string[] }[]) for (const ph of r.photos || []) if (typeof ph === "string" && ph) paths.add(ph);
+        const list = [...paths], out: { path: string; url: string }[] = [];
+        for (let i = 0; i < list.length; i += 100) { const { data } = await sb.storage.from("comprobantes").createSignedUrls(list.slice(i, i + 100), 7200);
+          for (const d of data || []) if (d.signedUrl && d.path) out.push({ path: d.path, url: d.signedUrl }); }
+        return Response.json(out);
+      }
       const D: Record<string, unknown[]> = {};
       for (const t of TABLES) D[t] = await loadAll(t);
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
