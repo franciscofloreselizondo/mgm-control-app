@@ -35,6 +35,7 @@ function correosAirbnb() {
   threads.forEach(th => th.getMessages().forEach(m => mails.push({ id: m.getId(), subject: m.getSubject(), date: m.getDate().toISOString(), body: m.getPlainBody().slice(0, 15000) })));
   const r = UrlFetchApp.fetch(FN.replace('?file=1', '?ingest=airbnb'), { method: 'post', contentType: 'application/json', headers: { 'x-mgm-key': clave() }, payload: JSON.stringify({ mails }), muteHttpExceptions: true });
   if (r.getResponseCode() !== 200) throw new Error('Correos Airbnb: ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200));
+  if (JSON.parse(r.getContentText()).pausado) return console.log('Correos Airbnb en pausa: se procesan cuando se vuelva a prender');
   threads.forEach(th => th.addLabel(label));
   console.log(r.getContentText());
 }
@@ -45,6 +46,7 @@ function clave() {
 }
 function pedir(tipo) {
   const r = UrlFetchApp.fetch(FN + '&tipo=' + tipo, { headers: { 'x-mgm-key': clave() }, muteHttpExceptions: true });
+  if (r.getResponseCode() === 204) { console.log('En pausa desde Admin → Automatizaciones'); return null; }
   if (r.getResponseCode() !== 200) throw new Error('Respaldo (' + tipo + ') falló: ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200));
   return r;
 }
@@ -52,13 +54,13 @@ function sub(nombre, padre) { const p = padre || DriveApp.getFolderById(FOLDER_I
 function carpeta() { return sub(SUBCARPETA); }
 
 function subirRespaldo() {
-  const r = pedir('datos'), dest = carpeta();
+  const r = pedir('datos'); if (!r) return; const dest = carpeta();
   dest.createFile(r.getBlob().setName('MGM_respaldo_' + Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd_HH') + 'h.xlsx'));
   limpiar(dest, 'MGM_respaldo_', DIAS_GUARDAR);
 }
 function paqueteSemanal() {
-  const hoy = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'), blobs = [];
-  blobs.push(Utilities.newBlob(pedir('esquema').getContentText(), 'text/plain', 'esquema.sql'));
+  const hoy = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'), blobs = [], esq = pedir('esquema'); if (!esq) return;
+  blobs.push(Utilities.newBlob(esq.getContentText(), 'text/plain', 'esquema.sql'));
   blobs.push(Utilities.newBlob(pedir('claves').getContentText(), 'text/csv', 'claves.csv'));
   const web = ['index.html', 'app.js', 'mgmx.js', 'styles.css', 'sw.js', 'config.js', 'version.json', 'manifest.webmanifest', 'vendor/supabase-2.119.0.js'];
   web.forEach(f => { const r = UrlFetchApp.fetch(SITIO + f, { muteHttpExceptions: true }); if (r.getResponseCode() === 200) blobs.push(r.getBlob().setName('web/' + f)); });
@@ -71,7 +73,8 @@ function paqueteSemanal() {
   zs.sort((a, b) => b.getDateCreated() - a.getDateCreated()).slice(ZIPS_GUARDAR).forEach(f => f.setTrashed(true));
 }
 function copiarFotos() {
-  const lista = JSON.parse(pedir('fotos').getContentText()), dest = sub('Comprobantes', carpeta()), ya = {};
+  const rf = pedir('fotos'); if (!rf) return;
+  const lista = JSON.parse(rf.getContentText()), dest = sub('Comprobantes', carpeta()), ya = {};
   const it = dest.getFiles(); while (it.hasNext()) ya[it.next().getName()] = 1;
   let n = 0;
   lista.forEach(x => { const nombre = x.path.replace(/\//g, '__'); if (ya[nombre]) return;

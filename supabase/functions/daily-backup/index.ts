@@ -482,16 +482,21 @@ Deno.serve(async (req: Request) => {
     // Modo archivo (para el Apps Script que sube el respaldo a Google Drive cada 4 h):
     // GET ?file=1 con header x-mgm-key = secret BACKUP_DRIVE_KEY → devuelve el .xlsx, sin correo.
     const url = new URL(req.url);
-    if (url.searchParams.get("sync") === "airbnb") return Response.json(await syncAirbnb());
+    // Interruptores de Admin → Automatizaciones (María puede pausar todo o cada una)
+    const { data: au } = await sb.from("settings").select("value").eq("key", "automatizaciones").maybeSingle();
+    const A = (au?.value ?? {}) as Record<string, unknown>, activa = (k: string) => A.on !== false && A[k] !== false;
+    if (url.searchParams.get("sync") === "airbnb") return Response.json(activa("ical") ? await syncAirbnb() : { pausado: true });
     if (url.searchParams.get("ingest") === "airbnb") {
       const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
       if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });
+      if (!activa("correos")) return Response.json({ pausado: true });
       return Response.json(await ingestAirbnb(await req.json()));
     }
     if (url.searchParams.get("file") === "1") {
       const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
       if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });
       const tipo = url.searchParams.get("tipo") || "datos";
+      if (!activa("resp_drive")) return new Response(null, { status: 204 });
       if (tipo === "esquema") {
         const { data, error } = await sb.rpc("bk_schema"); if (error) throw error;
         return new Response(String(data), { headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -515,6 +520,7 @@ Deno.serve(async (req: Request) => {
       const wb = MGMX.buildBackup(ExcelJS, D, today, { claves: setting(D, "backup_claves") === true });
       return new Response(await wb.xlsx.writeBuffer(), { headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" } });
     }
+    if (!activa("resp_correo")) return Response.json({ pausado: true });
     if (!BREVO_KEY) return Response.json({ error: "Falta el secret BREVO_API_KEY" }, { status: 500 });
     const D: Record<string, unknown[]> = {};
     for (const t of TABLES) D[t] = await loadAll(t);

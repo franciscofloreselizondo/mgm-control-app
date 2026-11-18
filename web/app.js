@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '47';
+const APP_VER = '48';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -231,7 +231,7 @@ const MENU = [
   ['ligas', 'Ligas Airbnb', 'Liga de cada anuncio para copiar'],
   ['servicios', 'Pagos de servicios', 'Luz, agua, gas, internet y mantenimiento por depa · histórico'],
   ['pnl', 'P&L (Beta)', 'Reportes por depa y para dueños · solo María y Paco'],
-  ['usuarios', 'Usuarios y permisos', 'Quién tiene acceso y a qué · actividad · solo superadmin'],
+  ['usuarios', 'Admin', 'Automatizaciones (prender/apagar) · permisos · actividad · solo superadmin'],
   ['supuestos', 'Supuestos', 'Chicas, cajones, bono, usuarios']
 ];
 const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · calendario, pendientes, compras, claves y ligas', finanzas: 'Finanzas · solo gastos e ingresos' };
@@ -1203,10 +1203,20 @@ const PERM = [
 const ROL_N = { superadmin: 'Superadmin', socio: 'Socio', finanzas: 'Finanzas' };
 const haceCuanto = ts => { if (!ts) return 'Nunca ha entrado'; const m = Math.round((Date.now() - new Date(ts)) / 60000);
   return m < 2 ? 'Ahora' : m < 60 ? `Hace ${m} min` : m < 1440 ? `Hace ${Math.round(m / 60)} h` : m < 2880 ? 'Ayer' : `Hace ${Math.round(m / 1440)} días`; };
+const AUTOS = [['ical', '🔄 Reservas desde Airbnb (iCal)', 'Cada hora: altas, cambios de fechas y cancelaciones'], ['correos', '✉️ Correos de Airbnb', 'Cada hora: nombre del huésped y monto'],
+  ['resp_correo', '📧 Respaldo diario por correo', 'Todos los días 10 pm'], ['resp_drive', '☁️ Respaldo en Drive', 'Cada 4 h + paquete del lunes + fotos'], ['claves', '🔑 Pendientes de cambio de clave', 'Cada 3 meses, uno por depa']];
+const autos = () => ({ on: true, ...(setting('automatizaciones', {}) || {}) });
 VIEWS.usuarios = () => {
   if (!isSuper()) return '<div class="empty">Solo superadmin.</div>';
-  const t = S.usrTab || 'permisos', U = S.t.app_users, cnt = r => U.filter(u => u.role === r).length;
-  let h = `<div class="seg" style="margin-bottom:12px;display:flex"><button class="sp ${t === 'actividad' ? 'on' : ''}" data-usrtab="actividad">Actividad</button><button class="sp ${t === 'permisos' ? 'on' : ''}" data-usrtab="permisos">Permisos</button></div>`;
+  const t = S.usrTab || 'auto', U = S.t.app_users, cnt = r => U.filter(u => u.role === r).length;
+  let h = `<div class="seg" style="margin-bottom:12px;display:flex"><button class="sp ${t === 'auto' ? 'on' : ''}" data-usrtab="auto">Automatizaciones</button><button class="sp ${t === 'permisos' ? 'on' : ''}" data-usrtab="permisos">Permisos</button><button class="sp ${t === 'actividad' ? 'on' : ''}" data-usrtab="actividad">Actividad</button></div>`;
+  if (t === 'auto') {
+    const A = autos(), on = A.on !== false, last = setting('airbnb_sync_last', null);
+    h += `<div class="card" style="border:2px solid ${on ? '#2e7d4f' : '#c0392b'}"><div class="row"><div class="sp"><div style="font-size:17px;font-weight:600">${on ? '🟢 Automatizaciones prendidas' : '⏸️ Todo en pausa'}</div><div class="m">${on ? 'Si algo falla, apágalo aquí y todo se detiene en la siguiente vuelta.' : 'Nada automático corre. La app sigue funcionando normal a mano.'}</div></div><label class="sw"><input type="checkbox" data-auto="on" ${on ? 'checked' : ''}><span></span></label></div>${A.by ? `<div class="m" style="margin-top:6px">Último cambio: ${esc(A.by)} · ${haceCuanto(A.at)}</div>` : ''}</div>
+    <div class="card list${on ? '' : ' off'}">${AUTOS.map(([k, n, dsc]) => `<div class="it"><div class="sp"><div>${n}</div><div class="m">${dsc}${k === 'ical' && last ? ` · última: ${haceCuanto(last.at)}${last.errores?.length ? ' · ⚠️ ' + last.errores.length + ' error(es)' : ''}` : ''}</div></div><label class="sw"><input type="checkbox" data-auto="${k}" ${A[k] !== false ? 'checked' : ''} ${on ? '' : 'disabled'}><span></span></label></div>`).join('')}</div>
+    <div class="m">El respaldo de Drive y el del correo te protegen si algo se borra: apágalos solo si ellos son los que fallan.</div>`;
+    return h;
+  }
   if (t === 'actividad') {
     const L = U.slice().sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''));
     h += `<div class="card list">${L.map(u => `<div class="it"><span class="avatar sm">${avatarHTML(u)}</span><div class="sp"><div>${esc(u.name || u.email)}</div><div class="m">${esc(u.email)}</div></div><div style="text-align:right"><span class="b ${u.role === 'superadmin' ? 'alta' : u.role === 'socio' ? 'cambio' : 'n'}">${ROL_N[u.role] || u.role}</span><div class="m" style="margin-top:4px">${haceCuanto(u.last_seen)}${u.visits ? ' · ' + u.visits + ' visitas' : ''}</div></div></div>`).join('')}</div>
@@ -1362,6 +1372,7 @@ $('view').addEventListener('change', e => {
   if (d.set) return ups('settings', { key: d.set, value: Number(t.value) || 0 }, ['key'], 'Guardado');
   if (d.code) { const [place, f] = d.code.split('|'); const cur = S.t.access_codes.find(x => x.place === place) || { place, code1: null, code2: null }; return ups('access_codes', { ...cur, [f]: t.value.trim() || null }, ['place'], 'Clave guardada'); }
   if (d.url !== undefined) return upd('properties', { code: d.url }, { airbnb_url: t.value.trim() || null }, 'Liga guardada');
+  if (d.auto) { const A = { ...autos(), [d.auto]: t.checked, by: S.me.name || S.me.email, at: new Date().toISOString() }; return ups('settings', { key: 'automatizaciones', value: A }, ['key'], d.auto === 'on' ? (t.checked ? 'Automatizaciones prendidas' : 'Todo en pausa') : (t.checked ? 'Prendida' : 'En pausa')); }
   if (d.ical !== undefined) { const v = t.value.trim(); if (v && !/^https:\/\/[^ ]+\.ics/i.test(v)) return toast('Esa liga no parece de calendario (.ics)'); return upd('properties', { code: d.ical }, { ical_url: v || null }, v ? 'Calendario guardado · se sincroniza cada hora' : 'Calendario quitado'); }
 });
 
