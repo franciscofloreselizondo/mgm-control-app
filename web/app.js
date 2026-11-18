@@ -31,7 +31,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '41';
+const APP_VER = '42';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -1072,7 +1072,7 @@ VIEWS.servicios = () => {
     return `<td class="sv ${p ? p.status : ''} ${per(m) === mesHoy ? 'hoyc' : ''}" data-servpay="${a.id}|${per(m)}">${t}${p && p.paid_on ? `<small>${+p.paid_on.slice(8)}/${+p.paid_on.slice(5, 7)}</small>` : ''}</td>`; };
   h += `<div class="card scroll" style="padding:6px 0"><table class="svt"><tr><th class="dpc">Depa</th>${MES3.map((m, i) => `<th data-per="${per(i)}" class="${per(i) === mesHoy ? 'hoyc' : ''}">${m}</th>`).join('')}<th class="r">Total</th></tr>`;
   for (const a of A) { const tot = (S.t.service_payments || []).filter(p => p.account_id === a.id && p.period.startsWith(F.y) && p.status === 'pagado').reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    h += `<tr style="${OC.has(a.id) ? 'opacity:.4' : ''}"><th class="dpc" ${F.edit ? `data-servhide="${a.id}"` : `data-servacc="${a.id}"`}>${F.edit ? `<span class="eye">${OC.has(a.id) ? '🙈' : '👁'}</span>` : ''}<b>${esc(a.label)}</b><small>${esc(a.responsable || '—')}${destinos(a).length ? ' · Gastos' + (destinos(a).length > 1 ? ' ' + destinos(a).map(d => d.code + ' ' + d.pct + '%').join('/') : '') : ''}</small></th>${MES3.map((_, i) => cell(a, i)).join('')}<td class="r"><b>${money(tot)}</b></td></tr>`; }
+    h += `<tr style="${OC.has(a.id) ? 'opacity:.4' : ''}"><th class="dpc" ${F.edit ? `data-servhide="${a.id}"` : `data-servacc="${a.id}"`}>${F.edit ? `<span class="eye">${OC.has(a.id) ? '🙈' : '👁'}</span>` : ''}<b>${esc(a.label)}</b><small>${esc(a.responsable || '—')}${destinos(a).length ? ' · Gastos' + (destinos(a).length > 1 ? ' ' + destinos(a).map(d => d.code + ' ' + d.pct + '%').join('/') : '') : ''}</small>${a.contrato || a.extra ? `<small class="nserv"># ${esc(a.contrato || a.extra)}</small>` : ''}</th>${MES3.map((_, i) => cell(a, i)).join('')}<td class="r"><b>${money(tot)}</b></td></tr>`; }
   h += `</table></div><div class="m">Toca una celda para registrar o editar el pago de ese mes; toca el depa para ver contrato, vencimiento y forma de pago. Los pagos de cuentas marcadas "Gastos" (las que paga María) aparecen solos en Gastos e ingresos y en el P&L.</div>`;
   return h;
 };
