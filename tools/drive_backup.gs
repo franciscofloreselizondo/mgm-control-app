@@ -24,6 +24,19 @@ function cadaHora() {
   const h = Number(Utilities.formatDate(new Date(), TZ, 'H'));
   if (HORAS.indexOf(h) >= 0) subirRespaldo();
   if (h === 23) copiarFotos();
+  correosAirbnb();
+}
+// Fase 2 · B: correos de Airbnb que María reenvía a esta cuenta → nombre del huésped y monto en la app.
+function correosAirbnb() {
+  const label = GmailApp.getUserLabelByName('MGM-airbnb') || GmailApp.createLabel('MGM-airbnb');
+  const threads = GmailApp.search('from:(airbnb.com) newer_than:30d -label:MGM-airbnb', 0, 50);
+  if (!threads.length) return;
+  const mails = [];
+  threads.forEach(th => th.getMessages().forEach(m => mails.push({ id: m.getId(), subject: m.getSubject(), date: m.getDate().toISOString(), body: m.getPlainBody().slice(0, 15000) })));
+  const r = UrlFetchApp.fetch(FN.replace('?file=1', '?ingest=airbnb'), { method: 'post', contentType: 'application/json', headers: { 'x-mgm-key': clave() }, payload: JSON.stringify({ mails }), muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('Correos Airbnb: ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200));
+  threads.forEach(th => th.addLabel(label));
+  console.log(r.getContentText());
 }
 function clave() {
   const key = PropertiesService.getScriptProperties().getProperty('MGM_KEY');

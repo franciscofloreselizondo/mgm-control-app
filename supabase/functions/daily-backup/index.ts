@@ -408,7 +408,7 @@ async function syncAirbnb() {
         let x = res.find((y) => y.airbnb_code === e.code);
         if (!x) { // ¿ya la capturó María a mano? se liga por depa + fechas
           x = mine.find((y) => !y.airbnb_code && y.checkin === e.start && y.checkout === e.end) || mine.find((y) => !y.airbnb_code && y.checkin === e.start);
-          if (x) { await sb.from("reservations").update({ airbnb_code: e.code }).eq("id", x.id); x.airbnb_code = e.code; out.ligadas++;
+          if (x) { await sb.from("reservations").update({ airbnb_code: e.code }).eq("id", x.id); x.airbnb_code = e.code; out.ligadas++; await aplicarMail(e.code);
             if (x.checkout !== e.end) { await sb.from("reservations").update({ checkout: e.end, review: true }).eq("id", x.id); await log(p.code, "cambio", `${x.guest}: salida ${x.checkout} → ${e.end} (${e.code})`, x.id); out.cambios++; }
             continue; }
         }
@@ -418,7 +418,8 @@ async function syncAirbnb() {
           continue;
         }
         const { data } = await sb.from("reservations").insert({ property_code: p.code, guest: "Airbnb " + e.code, checkin: e.start, checkout: e.end, airbnb_code: e.code, source: "airbnb", review: true, status: "activa" }).select("id").single();
-        await log(p.code, "alta", `Nueva reserva ${e.start} → ${e.end} (${e.code}). Falta nombre del huésped y chica.`, data?.id); out.altas++;
+        const conMail = await aplicarMail(e.code);
+        await log(p.code, "alta", `Nueva reserva ${e.start} → ${e.end} (${e.code}). ${conMail ? "Falta asignar chica." : "Falta nombre del huésped y chica."}`, data?.id); out.altas++;
       }
       const vivos = new Set(evs.map((e) => e.code));
       if (!vivos.size && mine.some((y) => y.airbnb_code && y.checkin >= today)) { out.errores.push(p.code + ": calendario vacío, no se cancela nada"); continue; }
@@ -430,6 +431,39 @@ async function syncAirbnb() {
   }
   await sb.from("settings").upsert({ key: "airbnb_sync_last", value: { at: new Date().toISOString(), ...out } });
   return out;
+}
+
+// ---------- Fase 2 · B: correos de Airbnb reenviados por María → nombre del huésped y monto ----------
+function parseMail(m: { subject: string; body: string }) {
+  const txt = m.subject + "\n" + m.body, code = (txt.match(/\bHM[A-Z0-9]{8}\b/) || [""])[0];
+  const kind = /cancelad|cancel(l)?ed/i.test(m.subject) ? "baja" : /confirmad|confirmed|nueva reserv|new booking|instant/i.test(m.subject) ? "alta"
+    : /modific|changed|altered|actualiz/i.test(m.subject) ? "cambio" : "otro";
+  const g = m.subject.match(/[:\-–]\s*(.+?)\s+(llega|arrives|ha cancelado|canceled|cancelled|reserv)/i);
+  const num = (re: RegExp) => { const x = m.body.match(re); return x ? Number(x[1].replace(/[,\s]/g, "")) : null; };
+  const amount = num(/(?:T[uú] ganas|Ganas|You earn|Your payout|Pago al anfitri[oó]n)[^$\d]{0,40}\$\s?([\d,]+(?:\.\d{1,2})?)/i);
+  return { code, kind, guest: g ? g[1].trim().slice(0, 80) : null, amount: amount && amount > 0 ? amount : null };
+}
+async function ingestAirbnb(body: { mails?: { id: string; subject: string; body: string; date: string }[] }) {
+  const out = { recibidos: 0, con_codigo: 0, aplicados: 0 };
+  for (const m of body.mails || []) {
+    out.recibidos++; const p = parseMail(m); if (!p.code || p.kind === "otro") continue; out.con_codigo++;
+    const { data: prev } = await sb.from("airbnb_mail").select("*").eq("code", p.code).maybeSingle();
+    await sb.from("airbnb_mail").upsert({ code: p.code, guest: p.guest ?? prev?.guest ?? null, amount: p.amount ?? prev?.amount ?? null, kind: p.kind, subject: m.subject.slice(0, 200), received_at: m.date });
+    if (await aplicarMail(p.code)) out.aplicados++;
+  }
+  return out;
+}
+async function aplicarMail(code: string) {
+  const { data: am } = await sb.from("airbnb_mail").select("*").eq("code", code).maybeSingle();
+  const { data: r } = await sb.from("reservations").select("id,guest,amount,property_code").eq("airbnb_code", code).maybeSingle();
+  if (!am || !r) return false;
+  const patch: Record<string, unknown> = {};
+  if (am.guest && (!r.guest || r.guest.startsWith("Airbnb HM"))) patch.guest = am.guest;
+  if (am.amount && !r.amount) patch.amount = am.amount;
+  if (!Object.keys(patch).length) return false;
+  await sb.from("reservations").update(patch).eq("id", r.id);
+  await sb.from("sync_log").insert({ property_code: r.property_code, action: "correo", detail: `Del correo de Airbnb: ${patch.guest ?? r.guest}${patch.amount ? " · $" + Number(patch.amount).toLocaleString("es-MX") : ""} (${code})`, reservation_id: r.id, seen: true });
+  return true;
 }
 
 async function loadAll(t: string) {
@@ -449,6 +483,11 @@ Deno.serve(async (req: Request) => {
     // GET ?file=1 con header x-mgm-key = secret BACKUP_DRIVE_KEY → devuelve el .xlsx, sin correo.
     const url = new URL(req.url);
     if (url.searchParams.get("sync") === "airbnb") return Response.json(await syncAirbnb());
+    if (url.searchParams.get("ingest") === "airbnb") {
+      const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
+      if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });
+      return Response.json(await ingestAirbnb(await req.json()));
+    }
     if (url.searchParams.get("file") === "1") {
       const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
       if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });
