@@ -380,6 +380,58 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 // deno-lint-ignore no-explicit-any
 const MGMX = (globalThis as any).MGMX;
 
+// ---------- Fase 2 · A: reservas desde el iCal de Airbnb ----------
+// Por cada depa con ical_url: altas, cambios de fechas y cancelaciones; todo queda en sync_log para que María lo revise.
+function parseICS(txt: string) {
+  const un = txt.replace(/\r?\n[ \t]/g, ""), ev: { start: string; end: string; summary: string; code: string; desc: string }[] = [];
+  for (const blk of un.split("BEGIN:VEVENT").slice(1)) {
+    const get = (k: string) => { const m = blk.match(new RegExp("^" + k + "[^:\\n]*:(.*)$", "m")); return m ? m[1].trim() : ""; };
+    const d = (v: string) => v ? v.slice(0, 4) + "-" + v.slice(4, 6) + "-" + v.slice(6, 8) : "";
+    const desc = get("DESCRIPTION").replace(/\\n/g, "\n"), code = (desc.match(/HM[A-Z0-9]{6,}/) || [""])[0];
+    ev.push({ start: d(get("DTSTART")), end: d(get("DTEND")), summary: get("SUMMARY"), code, desc });
+  }
+  return ev;
+}
+async function syncAirbnb() {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
+  const props = ((await loadAll("properties")) as { code: string; ical_url?: string; active?: boolean }[]).filter((p) => p.ical_url && p.active !== false);
+  const res = (await loadAll("reservations")) as { id: string; property_code: string; guest: string; checkin: string; checkout: string; status: string; airbnb_code?: string }[];
+  const out = { depas: props.length, altas: 0, cambios: 0, bajas: 0, ligadas: 0, errores: [] as string[] };
+  const log = (property_code: string, action: string, detail: string, reservation_id?: string) => sb.from("sync_log").insert({ property_code, action, detail, reservation_id });
+  for (const p of props) {
+    try {
+      const r = await fetch(p.ical_url!, { headers: { "user-agent": "MGM Control App" } }); const txt = await r.text();
+      if (!r.ok || !txt.includes("BEGIN:VCALENDAR")) { out.errores.push(p.code + ": " + r.status); continue; }
+      const evs = parseICS(txt).filter((e) => e.code && e.start && e.end && e.end >= today);
+      const mine = res.filter((x) => x.property_code === p.code && x.status !== "cancelada");
+      for (const e of evs) {
+        let x = res.find((y) => y.airbnb_code === e.code);
+        if (!x) { // ¿ya la capturó María a mano? se liga por depa + fechas
+          x = mine.find((y) => !y.airbnb_code && y.checkin === e.start && y.checkout === e.end) || mine.find((y) => !y.airbnb_code && y.checkin === e.start);
+          if (x) { await sb.from("reservations").update({ airbnb_code: e.code }).eq("id", x.id); x.airbnb_code = e.code; out.ligadas++;
+            if (x.checkout !== e.end) { await sb.from("reservations").update({ checkout: e.end, review: true }).eq("id", x.id); await log(p.code, "cambio", `${x.guest}: salida ${x.checkout} → ${e.end} (${e.code})`, x.id); out.cambios++; }
+            continue; }
+        }
+        if (x) {
+          if (x.status === "cancelada") { await sb.from("reservations").update({ status: "activa", review: true }).eq("id", x.id); await log(p.code, "alta", `Reactivada en Airbnb: ${x.guest} ${e.start} → ${e.end} (${e.code})`, x.id); out.altas++; }
+          else if (x.checkin !== e.start || x.checkout !== e.end) { await sb.from("reservations").update({ checkin: e.start, checkout: e.end, review: true }).eq("id", x.id); await log(p.code, "cambio", `${x.guest}: ${x.checkin}→${x.checkout} ahora ${e.start}→${e.end} (${e.code})`, x.id); out.cambios++; }
+          continue;
+        }
+        const { data } = await sb.from("reservations").insert({ property_code: p.code, guest: "Airbnb " + e.code, checkin: e.start, checkout: e.end, airbnb_code: e.code, source: "airbnb", review: true, status: "activa" }).select("id").single();
+        await log(p.code, "alta", `Nueva reserva ${e.start} → ${e.end} (${e.code}). Falta nombre del huésped y chica.`, data?.id); out.altas++;
+      }
+      const vivos = new Set(evs.map((e) => e.code));
+      if (!vivos.size && mine.some((y) => y.airbnb_code && y.checkin >= today)) { out.errores.push(p.code + ": calendario vacío, no se cancela nada"); continue; }
+      for (const x of mine.filter((y) => y.airbnb_code && y.checkin >= today && !vivos.has(y.airbnb_code))) {
+        await sb.from("reservations").update({ status: "cancelada", review: true }).eq("id", x.id);
+        await log(p.code, "baja", `Ya no aparece en Airbnb (cancelada): ${x.guest} ${x.checkin} → ${x.checkout} (${x.airbnb_code})`, x.id); out.bajas++;
+      }
+    } catch (e) { out.errores.push(p.code + ": " + String(e).slice(0, 80)); }
+  }
+  await sb.from("settings").upsert({ key: "airbnb_sync_last", value: { at: new Date().toISOString(), ...out } });
+  return out;
+}
+
 async function loadAll(t: string) {
   const rows: Record<string, unknown>[] = [];
   for (let from = 0; ; from += 1000) {
@@ -396,6 +448,7 @@ Deno.serve(async (req: Request) => {
     // Modo archivo (para el Apps Script que sube el respaldo a Google Drive cada 4 h):
     // GET ?file=1 con header x-mgm-key = secret BACKUP_DRIVE_KEY → devuelve el .xlsx, sin correo.
     const url = new URL(req.url);
+    if (url.searchParams.get("sync") === "airbnb") return Response.json(await syncAirbnb());
     if (url.searchParams.get("file") === "1") {
       const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
       if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });

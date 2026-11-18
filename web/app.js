@@ -31,9 +31,9 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '45';
+const APP_VER = '46';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
-  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments'];
+  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
   'Reparaciones menores', 'Pintura', 'Limpieza de muebles', 'Mantenimiento AC', 'Gas', 'Luz', 'Internet', 'Agua', 'Predial', 'Otro'];
 const CAT_INGRESO = ['Ingreso por reserva', 'Otros ingresos'];
@@ -562,6 +562,8 @@ VIEWS.hoy = () => {
   const P = pendientes(), d = today(), act = activas();
   const salen = act.filter(r => r.checkout === d), entran = act.filter(r => r.checkin === d), occ = ocupadas(d), lib = libres(d);
   let h = `<div class="m" style="margin-bottom:8px">${fmt(d)}</div><div class="kpis k4"><button class="kpi" data-hoy="sale"><div class="v">${salen.length}</div><div class="l">Salen hoy ›</div></button><button class="kpi" data-hoy="entra"><div class="v">${entran.length}</div><div class="l">Entran hoy ›</div></button><button class="kpi" data-hoy="occ"><div class="v">${occ.length}</div><div class="l">Ocupados ›</div></button><button class="kpi" data-hoy="libre"><div class="v">${lib.length}</div><div class="l">Libres ›</div></button></div>`;
+  if (isSuper()) { const L = (S.t.sync_log || []).filter(x => !x.seen).sort((a, b) => a.at < b.at ? 1 : -1);
+    if (L.length) h += `<h2>🔄 Cambios de Airbnb (${L.length})</h2>` + L.slice(0, 15).map(x => `<div class="card row"><div class="sp"><div><span class="dp">${esc(x.property_code)}</span> <span class="b ${x.action === 'baja' ? 'baja' : ''}">${x.action === 'alta' ? 'NUEVA' : x.action === 'baja' ? 'CANCELADA' : 'CAMBIO'}</span></div><div class="m">${esc(x.detail)}</div></div>${x.reservation_id ? `<button class="pri" data-res="${x.reservation_id}">Abrir</button>` : ''}<button data-synok="${x.id}">Visto</button></div>`).join('') + (L.length > 1 ? `<div class="row" style="margin-bottom:8px"><span class="sp"></span><button data-synok="*">Marcar todo visto</button></div>` : ''); }
   if (isSuper()) h += `<div class="row" style="margin:12px 0 4px"><button class="sp" data-asigwa="1">📲 Asignaciones de mañana para WhatsApp</button></div>`;
   h += '<h2>Limpiezas por asignar · próximos 7 días</h2>';
   h += P.limpiezas.length ? P.limpiezas.map(r => `<div class="card row"><div class="sp"><div><span class="dp">${esc(r.dp)}</span> · ${fmt(r.f)}${r.f === d ? ' <span class="b baja">HOY</span>' : ''}</div><div class="m">${esc(r.txt)}</div></div><button class="pri" ${r.extra ? 'data-extra' : 'data-asig'}="${r.id}">Asignar</button></div>`).join('') : '<div class="card empty">Todo asignado ✓</div>';
@@ -1216,7 +1218,7 @@ VIEWS.usuarios = () => {
     <div class="m">Personal de limpieza: sin acceso (fase 2: confirmación por WhatsApp). Los permisos también están protegidos en la base de datos, no solo en las pantallas.</div>`;
   return h;
 };
-VIEWS.ligas = () => props().map(p => `<div class="card"><div class="row"><span class="dp">${esc(p.code)}</span><span class="sp"></span>${p.airbnb_url ? `<a href="${esc(p.airbnb_url)}" target="_blank" rel="noopener">Abrir</a>` : ''}<button class="${p.airbnb_url ? 'pri' : ''}" data-copyurl="${esc(p.code)}" ${p.airbnb_url ? '' : 'disabled'}>Copiar</button></div><input style="width:100%;margin-top:8px" type="url" inputmode="url" placeholder="https://airbnb.mx/h/…" data-url="${esc(p.code)}" value="${esc(p.airbnb_url || '')}"></div>`).join('');
+VIEWS.ligas = () => props().map(p => `<div class="card"><div class="row"><span class="dp">${esc(p.code)}</span><span class="sp"></span>${p.airbnb_url ? `<a href="${esc(p.airbnb_url)}" target="_blank" rel="noopener">Abrir</a>` : ''}<button class="${p.airbnb_url ? 'pri' : ''}" data-copyurl="${esc(p.code)}" ${p.airbnb_url ? '' : 'disabled'}>Copiar</button></div><input style="width:100%;margin-top:8px" type="url" inputmode="url" placeholder="https://airbnb.mx/h/…" data-url="${esc(p.code)}" value="${esc(p.airbnb_url || '')}">${isSuper() ? `<div class="m" style="margin-top:8px">Calendario iCal (Airbnb → Calendario → Disponibilidad → Exportar)${p.ical_url ? ' · ✅ sincronizando' : ''}</div><input style="width:100%;margin-top:4px" type="url" inputmode="url" placeholder="https://www.airbnb.mx/calendar/ical/….ics?s=…" data-ical="${esc(p.code)}" value="${esc(p.ical_url || '')}">` : ''}</div>`).join('');
 
 // ---------- PERFIL ----------
 const inicial = u => esc(((u.name || u.email || '?')[0] || '?').toUpperCase());
@@ -1267,6 +1269,7 @@ $('view').addEventListener('click', async e => {
   if (d.asig) return sheetAsignar(d.asig);
   if (d.extra) return extraForm(d.extra);
   if (d.newextra) return extraForm(null);
+  if (d.synok) { const ids = d.synok === '*' ? S.t.sync_log.filter(x => !x.seen).map(x => x.id) : [d.synok]; for (const id of ids) await upd('sync_log', { id }, { seen: true }, ids.length > 1 ? null : 'Listo'); if (ids.length > 1) toast('Todo visto'); return; }
   if (d.res) return resForm(d.res);
   if (d.tx) return txForm(d.tx);
   if (d.task) return taskForm(d.task);
@@ -1359,6 +1362,7 @@ $('view').addEventListener('change', e => {
   if (d.set) return ups('settings', { key: d.set, value: Number(t.value) || 0 }, ['key'], 'Guardado');
   if (d.code) { const [place, f] = d.code.split('|'); const cur = S.t.access_codes.find(x => x.place === place) || { place, code1: null, code2: null }; return ups('access_codes', { ...cur, [f]: t.value.trim() || null }, ['place'], 'Clave guardada'); }
   if (d.url !== undefined) return upd('properties', { code: d.url }, { airbnb_url: t.value.trim() || null }, 'Liga guardada');
+  if (d.ical !== undefined) { const v = t.value.trim(); if (v && !/^https:\/\/[^ ]+\.ics/i.test(v)) return toast('Esa liga no parece de calendario (.ics)'); return upd('properties', { code: d.ical }, { ical_url: v || null }, v ? 'Calendario guardado · se sincroniza cada hora' : 'Calendario quitado'); }
 });
 
 // maqueta: cambiar rol / cargar ejemplos
