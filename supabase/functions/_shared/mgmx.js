@@ -200,83 +200,161 @@
     }
     return ws;
   }
-  // Gastos por depa × categoría (mes actual y anterior)
-  function gastosPivot(wb, D, today) {
-    const ws = wb.addWorksheet('Gastos por depa', { properties: { tabColor: { argb: K.copper } } }); ws.views = [{ state: 'frozen', xSplit: 1, showGridLines: false }]; ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
-    const cats = [...new Set((D.transactions || []).filter(t => t.kind === 'gasto').map(t => t.category))].sort();
-    ws.columns = [{ width: 16 }, ...cats.map(() => ({ width: 13 })), { width: 13 }];
-    titulo(ws, 'Gastos por departamento y categoría', 'Mes actual y mes anterior', cats.length + 2);
-    let r = 4; const ym = today.slice(0, 7);
-    for (const m of [ym, add(ym + '-01', -1).slice(0, 7)]) {
-      const tx = D.transactions.filter(t => t.kind === 'gasto' && (t.date || '').startsWith(m)); r = seccion(ws, r, MES[+m.slice(5) - 1] + ' ' + m.slice(0, 4), cats.length + 2);
-      r = encab(ws, r, ['Depa', ...cats, 'Total']); const deps = [...new Set(tx.map(t => t.property_code || 'General'))].sort();
-      const colT = Array(cats.length + 1).fill(0);
-      deps.forEach((dp, n) => { const v = cats.map(c => tx.filter(t => (t.property_code || 'General') === dp && t.category === c).reduce((s2, t) => s2 + Number(t.amount), 0)); const tt = v.reduce((a, b) => a + b, 0);
-        v.forEach((x, i) => colT[i] += x); colT[cats.length] += tt;
-        r = fila(ws, r, [dp, ...v.map(x => x || null), tt], [null, ...cats.map(() => MONEY0), MONEY0], n); ws.getCell(r - 1, cats.length + 2).font = { bold: true }; });
-      r = fila(ws, r, ['TOTAL', ...colT], [null, ...colT.map(() => MONEY0)], 0); for (let i = 1; i <= cats.length + 2; i++) { ws.getCell(r - 1, i).font = { bold: true }; ws.getCell(r - 1, i).fill = fill(K.forestL); }
-      r += 1;
-    }
+  // ---------- Hojas funcionales: estadísticas arriba + tabla de Excel (filtros, orden, totales que respetan el filtro) ----------
+  let TN = 0;
+  const FMT = { money: MONEY, money0: MONEY0, date: FDATE, pct: '0%', int: '0' };
+  function hoja(wb, name, tab, widths, tit, sub) {
+    const ws = wb.addWorksheet(name, { properties: { tabColor: { argb: tab } } });
+    ws.columns = widths.map(w => ({ width: w })); titulo(ws, tit || name, sub || '', widths.length);
+    ws.views = [{ showGridLines: false }]; ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
     return ws;
   }
+  // tabla nativa de Excel: cols = [encabezado, función(fila) → valor, formato?, total?]
+  function tablaX(ws, r, cols, rows, o) {
+    o = o || {};
+    if (o.titulo) r = seccion(ws, r, o.titulo, cols.length);
+    const data = rows.length ? rows.map(x => cols.map(c => { const v = c[1](x); return c[2] === 'date' ? fdate(v) : v == null ? null : v; })) : [cols.map((c, i) => i ? null : 'Sin registros')];
+    const hasTot = cols.some(c => c[3]);
+    ws.addTable({ name: 'T' + (++TN) + '_' + (o.id || 'tabla'), ref: 'A' + r, headerRow: true, totalsRow: hasTot,
+      style: { theme: 'TableStyleMedium7', showRowStripes: true },
+      columns: cols.map((c, i) => ({ name: c[0], filterButton: true, totalsRowLabel: i === 0 && hasTot ? 'Total (filtrado)' : undefined, totalsRowFunction: c[3] ? (c[3] === 'count' ? 'count' : 'sum') : (i === 0 && hasTot ? undefined : 'none') })),
+      rows: data });
+    for (let i = 0; i <= data.length + (hasTot ? 1 : 0); i++) cols.forEach((c, j) => { if (c[2] && FMT[c[2]]) ws.getCell(r + i, j + 1).numFmt = FMT[c[2]]; });
+    if (o.paint) rows.forEach((x, i) => o.paint(ws.getRow(r + 1 + i), x));
+    return r + data.length + (hasTot ? 2 : 1) + 1;
+  }
+  // panel de estadística (pequeña tabla estática con encabezado oscuro)
+  function panel(ws, r, tit, heads, rows, fmts, ncol) {
+    r = seccion(ws, r, tit, ncol || heads.length); r = encab(ws, r, heads);
+    if (!rows.length) return fila(ws, r, ['Sin datos'], null, 0) + 1;
+    rows.forEach((v, n) => { r = fila(ws, r, v, fmts, n); if (v[0] === 'TOTAL') for (let i = 1; i <= heads.length; i++) { const c = ws.getCell(r - 1, i); c.font = { bold: true }; c.fill = fill(K.forestL); } });
+    return r + 1;
+  }
+  const mesesAtras = (ym, n) => Array.from({ length: n }, (_, i) => add(ym + '-15', -30 * i).slice(0, 7)).reverse();
+  const mesLbl = m => MON[+m.slice(5) - 1] + ' ' + m.slice(2, 4);
+  const diasMes = m => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5), 0)).getUTCDate();
+  const nochesEn = (r, m) => { const ini = m + '-01', fin = add(m + '-' + P(diasMes(m)), 1); let n = 0; for (let d = r.checkin > ini ? r.checkin : ini; d < r.checkout && d < fin; d = add(d, 1)) n++; return n; };
+  const prioCol = { alta: [K.rojoL, K.rojo], media: [K.amaL, K.ama], baja: [K.verdeL, K.verde] };
+  const ST = { en_proceso: 'En proceso', en_pausa: 'En pausa', terminado: 'Terminado' };
 
-  // Respaldo completo: vistas estilizadas + una hoja "BD" por pestaña de la app.
+  function hReservas(wb, D, today) {
+    const ym = today.slice(0, 7), P0 = props(D), act = activas(D);
+    const ws = hoja(wb, 'Reservas', K.forest, [16, 22, 13, 13, 9, 12, 9, 12, 12, 13], 'Reservas', 'Ocupación del mes arriba · tabla completa abajo (usa las flechas de los encabezados para filtrar y ordenar)');
+    const delMes = act.filter(r => nochesEn(r, ym) > 0), noches = delMes.reduce((t, r) => t + nochesEn(r, ym), 0), cap = P0.length * diasMes(ym);
+    let r = seccion(ws, 4, 'Ocupación de ' + MES[+ym.slice(5) - 1].toLowerCase(), 10);
+    r = kpis(ws, r, [[delMes.length, 'Reservas en el mes', K.ink], [noches, 'Noches ocupadas', K.forest], [cap ? Math.round(noches / cap * 100) + '%' : '—', 'Ocupación portafolio', K.copper], [delMes.length ? (noches / delMes.length).toFixed(1) : '—', 'Noches por reserva', K.ink], [act.filter(x => x.checkout.startsWith(ym)).length, 'Salidas del mes', K.rojo]]);
+    const rows = P0.map(p => { const rs = delMes.filter(x => x.property_code === p.code), n = rs.reduce((t, x) => t + nochesEn(x, ym), 0); return [p.code, rs.length, n, n / diasMes(ym), rs.reduce((t, x) => t + (Number(x.amount) || 0), 0)]; }).sort((a, b) => b[3] - a[3]);
+    r = panel(ws, r, 'Ocupación por depa · ' + mesLbl(ym), ['Depa', 'Reservas', 'Noches', '% ocupación', 'Monto capturado'], [...rows, ['TOTAL', delMes.length, noches, cap ? noches / cap : 0, rows.reduce((t, x) => t + x[4], 0)]], [null, null, null, '0%', MONEY0]);
+    const tend = mesesAtras(ym, 6).map(m => { const rs = act.filter(x => nochesEn(x, m) > 0), n = rs.reduce((t, x) => t + nochesEn(x, m), 0); return [mesLbl(m), rs.length, n, P0.length ? n / (P0.length * diasMes(m)) : 0]; });
+    r = panel(ws, r, 'Tendencia últimos 6 meses', ['Mes', 'Reservas', 'Noches', '% ocupación'], tend, [null, null, null, '0%']);
+    const ord = D.reservations.slice().sort((a, b) => b.checkin.localeCompare(a.checkin));
+    tablaX(ws, r, [['Depa', x => x.property_code], ['Huésped', x => x.guest], ['Check in', x => x.checkin, 'date'], ['Check out', x => x.checkout, 'date'], ['Noches', x => Math.round((toD(x.checkout) - toD(x.checkin)) / 864e5), 'int', 'sum'],
+      ['Estatus', x => x.status === 'cancelada' ? 'Cancelada' : x.checkout < today ? 'Terminada' : x.checkin <= today ? 'En curso' : 'Próxima'], ['Auto', x => x.has_car == null ? '' : x.has_car ? 'Sí' : 'No'], ['Cajón de', x => x.parking_from || ''], ['Chica', x => nombre(D, x.cleaner_key)], ['Monto', x => x.amount == null ? null : Number(x.amount), 'money', 'sum']], ord,
+      { titulo: 'Todas las reservas (más recientes primero)', id: 'reservas', paint: (row, x) => { const c = row.getCell(6); if (x.status === 'cancelada') c.font = { color: { argb: K.rojo } }; else if (x.checkin <= today && today < x.checkout) c.font = { bold: true, color: { argb: K.verde } }; } });
+  }
+  function hNomina(wb, D, today) {
+    const ws = hoja(wb, 'Nómina', K.forest, [14, 14, 12, 7, 16, 10, 11, 11, 12, 14], 'Nómina de limpieza', 'Semana actual y últimas 6 semanas arriba · detalle, pagos y otros abajo');
+    const ini = monday(today), cs = D.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const cur = cs.map(c => [c.name, nominaD(D, c.key, ini)]).filter(([, N]) => N.n || N.total || N.pagado);
+    let r = panel(ws, 4, 'Semana del ' + fmtCorto(ini) + ' al ' + fmtCorto(add(ini, 6)), ['Chica', 'Limpiezas', 'Supervisión', 'Otros', 'Total', 'Pagado', 'Saldo'],
+      [...cur.map(([n, N]) => [n, N.n, N.sup, N.otros, N.total, N.pagado, N.saldo]), ['TOTAL', ...[0, 1, 2, 3, 4, 5].map(i => cur.reduce((t, [, N]) => t + [N.n, N.sup, N.otros, N.total, N.pagado, N.saldo][i], 0))]], [null, null, MONEY0, MONEY0, MONEY0, MONEY0, MONEY0]);
+    const sems = Array.from({ length: 6 }, (_, i) => add(ini, -7 * (5 - i)));
+    const piv = cs.map(c => [c.name, ...sems.map(s => nominaD(D, c.key, s).total)]).filter(v => v.slice(1).some(x => x));
+    r = panel(ws, r, 'Total por semana (lunes)', ['Chica', ...sems.map(fmtCorto)], [...piv, ['TOTAL', ...sems.map((_, i) => piv.reduce((t, v) => t + v[i + 1], 0))]], [null, ...sems.map(() => MONEY0)]);
+    const bono = Number(settingD(D, 'bono_domingo', 50) ?? 50), rate = (p, k) => { const x = D.cleaning_rates.find(y => y.property_code === p && y.cleaner_key === k); return x ? Number(x.amount) : 0; };
+    const det = [...activas(D).filter(x => x.cleaner_key).map(x => ({ k: x.cleaner_key, f: x.checkout, dp: x.property_code, tipo: 'Salida' })), ...(D.cleanings || []).filter(x => x.cleaner_key).map(x => ({ k: x.cleaner_key, f: x.date, dp: x.property_code, tipo: 'Extra' }))]
+      .filter(x => x.f <= add(today, 14)).sort((a, b) => b.f.localeCompare(a.f)).map(x => ({ ...x, t: rate(x.dp, x.k), b: dow(x.f) === 0 ? bono : 0 }));
+    r = tablaX(ws, r, [['Semana', x => monday(x.f), 'date'], ['Chica', x => nombre(D, x.k)], ['Fecha', x => x.f, 'date'], ['Día', x => DIA3[dow(x.f)]], ['Depa', x => x.dp], ['Tipo', x => x.tipo], ['Tarifa', x => x.t, 'money0', 'sum'], ['Bono dom.', x => x.b, 'money0', 'sum'], ['Total', x => x.t + x.b, 'money0', 'sum']], det, { titulo: 'Detalle de limpiezas pagables', id: 'nomina' });
+    r = tablaX(ws, r, [['Semana', x => x.week_start, 'date'], ['Chica', x => nombre(D, x.cleaner_key)], ['Fecha de pago', x => x.date, 'date'], ['Forma', x => x.method], ['Monto', x => Number(x.amount), 'money0', 'sum'], ['Nota', x => x.note || '']], D.payroll_payments.slice().sort((a, b) => b.date.localeCompare(a.date)), { titulo: 'Pagos hechos', id: 'pagos' });
+    tablaX(ws, r, [['Semana', x => x.week_start, 'date'], ['Chica', x => nombre(D, x.cleaner_key)], ['Descripción', x => x.description], ['Monto', x => Number(x.amount), 'money0', 'sum']], D.payroll_extras.slice().sort((a, b) => b.week_start.localeCompare(a.week_start)), { titulo: 'Otros (bonos y ajustes)', id: 'otros' });
+  }
+  function hLimpiezas(wb, D, today) {
+    const ws = hoja(wb, 'Limpiezas', K.forest, [16, 12, 12, 12, 12, 12, 12, 30], 'Limpiezas', 'Cuántas hace cada chica por mes · descansos · limpiezas extra');
+    const ms = mesesAtras(today.slice(0, 7), 6), cs = D.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const cnt = (k, m) => activas(D).filter(x => x.cleaner_key === k && x.checkout.startsWith(m)).length + (D.cleanings || []).filter(x => x.cleaner_key === k && x.date.startsWith(m)).length;
+    const piv = cs.map(c => [c.name, ...ms.map(m => cnt(c.key, m))]).filter(v => v.slice(1).some(x => x));
+    let r = panel(ws, 4, 'Limpiezas por chica y mes', ['Chica', ...ms.map(mesLbl)], [...piv, ['TOTAL', ...ms.map((_, i) => piv.reduce((t, v) => t + v[i + 1], 0))]]);
+    const sinAsig = activas(D).filter(x => !x.cleaner_key && x.checkout >= today && x.checkout <= add(today, 14) && (props(D).find(p => p.code === x.property_code) || {}).cleaning !== false);
+    r = panel(ws, r, 'Salidas sin chica asignada · próximos 14 días', ['Fecha', 'Día', 'Depa', 'Huésped'], sinAsig.sort((a, b) => a.checkout.localeCompare(b.checkout)).map(x => [fdate(x.checkout), DIA3[dow(x.checkout)], x.property_code, x.guest]), [FDATE]);
+    r = tablaX(ws, r, [['Fecha', x => x.date, 'date'], ['Día', x => DIA3[dow(x.date)]], ['Chica', x => nombre(D, x.cleaner_key)]], D.days_off.filter(o => o.date >= add(today, -30)).sort((a, b) => a.date.localeCompare(b.date)), { titulo: 'Descansos (último mes y próximos)', id: 'descansos' });
+    tablaX(ws, r, [['Depa', x => x.property_code], ['Fecha', x => x.date, 'date'], ['Chica', x => nombre(D, x.cleaner_key) || 'Sin asignar'], ['Nota', x => x.note || '']], (D.cleanings || []).slice().sort((a, b) => b.date.localeCompare(a.date)), { titulo: 'Limpiezas extra', id: 'extras' });
+  }
+  function hFinanzas(wb, D, today) {
+    const ym = today.slice(0, 7), tx = D.transactions || [];
+    const ws = hoja(wb, 'Gastos e ingresos', K.copper, [16, 12, 16, 26, 13, 36, 13, 11, 8, 14], 'Gastos e ingresos', 'Resultado del mes, tendencia, categorías y depas · tabla completa abajo');
+    const sum = (f) => tx.filter(f).reduce((t, x) => t + Number(x.amount), 0);
+    const ing = sum(x => x.kind === 'ingreso' && x.date.startsWith(ym)), gas = sum(x => x.kind === 'gasto' && x.date.startsWith(ym));
+    let r = seccion(ws, 4, MES[+ym.slice(5) - 1] + ' ' + ym.slice(0, 4), 10);
+    r = kpis(ws, r, [[ing, 'Ingresos', K.verde], [gas, 'Gastos', K.rojo], [ing - gas, 'Resultado', ing - gas >= 0 ? K.verde : K.rojo], [tx.filter(x => x.date.startsWith(ym) && !x.checked).length, 'Sin palomita de capturado', K.ama]]);
+    const ms = mesesAtras(ym, 12);
+    r = panel(ws, r, 'Tendencia 12 meses', ['Mes', 'Ingresos', 'Gastos', 'Resultado'], ms.map(m => { const i = sum(x => x.kind === 'ingreso' && x.date.startsWith(m)), g = sum(x => x.kind === 'gasto' && x.date.startsWith(m)); return [mesLbl(m), i, g, i - g]; }), [null, MONEY0, MONEY0, MONEY0]);
+    const m6 = ms.slice(-6), cats = [...new Set(tx.filter(x => x.kind === 'gasto').map(x => x.category))].sort();
+    const pc = cats.map(c => [c, ...m6.map(m => sum(x => x.kind === 'gasto' && x.category === c && x.date.startsWith(m)))]).filter(v => v.slice(1).some(x => x));
+    r = panel(ws, r, 'Gastos por categoría · últimos 6 meses', ['Categoría', ...m6.map(mesLbl)], [...pc, ['TOTAL', ...m6.map((_, i) => pc.reduce((t, v) => t + v[i + 1], 0))]], [null, ...m6.map(() => MONEY0)]);
+    const deps = [...new Set(tx.filter(x => x.date.startsWith(ym)).map(x => x.property_code || 'General'))].sort();
+    const pd = deps.map(d => { const i = sum(x => x.kind === 'ingreso' && (x.property_code || 'General') === d && x.date.startsWith(ym)), g = sum(x => x.kind === 'gasto' && (x.property_code || 'General') === d && x.date.startsWith(ym)); return [d, i, g, i - g]; }).sort((a, b) => b[3] - a[3]);
+    r = panel(ws, r, 'Resultado por depa · ' + mesLbl(ym), ['Depa', 'Ingresos', 'Gastos', 'Resultado'], [...pd, ['TOTAL', ing, gas, ing - gas]], [null, MONEY0, MONEY0, MONEY0]);
+    tablaX(ws, r, [['Mes', x => mesLbl(x.date.slice(0, 7))], ['Tipo', x => x.kind === 'ingreso' ? 'Ingreso' : 'Gasto'], ['Depa', x => x.property_code || 'General'], ['Categoría', x => x.category_other ? x.category + ': ' + x.category_other : x.category], ['Fecha', x => x.date, 'date'],
+      ['Descripción', x => x.description || ''], ['Monto', x => (x.kind === 'gasto' ? -1 : 1) * Number(x.amount), 'money', 'sum'], ['Capturado', x => x.checked ? 'Sí' : 'No'], ['Fotos', x => (x.photos || []).length, 'int'], ['Origen', x => x.service_payment_id ? 'Servicios' : x.reservation_id ? 'Reserva' : 'Manual']],
+      tx.slice().sort((a, b) => b.date.localeCompare(a.date)), { titulo: 'Todos los movimientos (gastos en negativo; el total es el resultado de lo filtrado)', id: 'finanzas', paint: (row, x) => { row.getCell(7).font = { color: { argb: x.kind === 'gasto' ? K.rojo : K.verde } }; } });
+  }
+  function hPendientes(wb, D, today) {
+    const T = D.tasks || [], ab = T.filter(t => t.status !== 'terminado');
+    const ws = hoja(wb, 'Pendientes', K.rojo, [11, 14, 46, 14, 13, 12, 40], 'Pendientes', 'Abiertos por prioridad, responsable y depa · tabla completa abajo (abiertos primero)');
+    let r = seccion(ws, 4, 'Abiertos', 7);
+    r = kpis(ws, r, [[ab.filter(t => t.priority === 'alta').length, 'Prioridad alta', K.rojo], [ab.filter(t => t.priority === 'media').length, 'Prioridad media', K.ama], [ab.filter(t => t.priority === 'baja').length, 'Prioridad baja', K.verde]]);
+    const resp = [...new Set(T.map(t => t.responsible || 'Sin responsable'))];
+    r = panel(ws, r, 'Por responsable', ['Responsable', 'En proceso', 'En pausa', 'Terminados', 'Abiertos'], resp.map(p => { const q = T.filter(t => (t.responsible || 'Sin responsable') === p); return [p, q.filter(t => t.status === 'en_proceso').length, q.filter(t => t.status === 'en_pausa').length, q.filter(t => t.status === 'terminado').length, q.filter(t => t.status !== 'terminado').length]; }).sort((a, b) => b[4] - a[4]));
+    const dps = [...new Set(ab.map(t => t.property_code || 'General'))];
+    r = panel(ws, r, 'Abiertos por depa', ['Depa', 'Alta', 'Media', 'Baja', 'Total'], dps.map(d => { const q = ab.filter(t => (t.property_code || 'General') === d); return [d, q.filter(t => t.priority === 'alta').length, q.filter(t => t.priority === 'media').length, q.filter(t => t.priority === 'baja').length, q.length]; }).sort((a, b) => b[4] - a[4]));
+    const o = { alta: 0, media: 1, baja: 2 };
+    tablaX(ws, r, [['Prioridad', x => (x.priority || '').toUpperCase()], ['Depa', x => x.property_code || 'General'], ['Descripción', x => x.description], ['Responsable', x => x.responsible || ''], ['Fecha', x => x.date, 'date'], ['Estatus', x => ST[x.status] || x.status], ['Avances', x => x.notes || '']],
+      T.slice().sort((a, b) => (a.status === 'terminado') - (b.status === 'terminado') || (o[a.priority] ?? 3) - (o[b.priority] ?? 3) || (a.date || '').localeCompare(b.date || '')),
+      { titulo: 'Todos los pendientes', id: 'pendientes', paint: (row, x) => { const pc = prioCol[x.priority]; if (pc) { row.getCell(1).fill = fill(pc[0]); row.getCell(1).font = { bold: true, color: { argb: pc[1] } }; } if (x.status === 'terminado') row.getCell(6).font = { color: { argb: K.gris } }; } });
+  }
+  function hCompras(wb, D) {
+    const C2 = D.purchases || [], pend = C2.filter(p => !p.done);
+    const ws = hoja(wb, 'Compras', K.copper, [40, 18, 14, 13, 11], 'Compras', 'Pendientes por comprar primero');
+    let r = seccion(ws, 4, 'Estado', 5); r = kpis(ws, r, [[pend.length, 'Por comprar', K.rojo], [C2.length - pend.length, 'Comprados', K.verde]]);
+    const lug = [...new Set(pend.map(p => p.store || 'Sin lugar'))];
+    r = panel(ws, r, 'Por comprar, por lugar', ['Lugar', 'Pendientes'], lug.map(l => [l, pend.filter(p => (p.store || 'Sin lugar') === l).length]).sort((a, b) => b[1] - a[1]));
+    tablaX(ws, r, [['Descripción', x => x.description], ['Lugar', x => x.store || ''], ['Responsable', x => x.responsible || ''], ['Fecha', x => x.date, 'date'], ['Comprado', x => x.done ? 'Sí' : 'No']], C2.slice().sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0) || (b.date || '').localeCompare(a.date || '')),
+      { titulo: 'Lista de compras', id: 'compras', paint: (row, x) => { if (!x.done) row.getCell(5).font = { bold: true, color: { argb: K.rojo } }; } });
+  }
+  function hCajones(wb, D, today) {
+    const ym = today.slice(0, 7), ws = hoja(wb, 'Cajones', K.ink, [16, 26, 13, 13, 10, 12], 'Cajones Qalina', 'Quién pide y quién presta este mes · historial completo abajo');
+    const ini = ym + '-01', fin = add(ym + '-' + P(diasMes(ym)), 1), nn = (a, b) => { let n = 0; for (let d = a > ini ? a : ini; d < b && d < fin; d = add(d, 1)) n++; return n; };
+    const H = [...activas(D).filter(x => x.parking_from).map(x => ({ cajon: x.parking_from, quien: x.property_code, det: x.guest, tipo: 'Reserva', a: x.checkin, b: x.checkout })),
+      ...(D.parking_loans || []).map(x => ({ cajon: x.cajon, quien: x.name, det: '', tipo: 'Externo', a: x.date_from, b: x.date_to }))];
+    const Hm = H.map(x => ({ ...x, n: nn(x.a, x.b) })).filter(x => x.n > 0);
+    const agrupa = k => { const g = {}; Hm.forEach(x => { const y = g[x[k]] = g[x[k]] || [0, 0]; y[0]++; y[1] += x.n; }); return Object.entries(g).sort((a, b) => b[1][1] - a[1][1]).map(([q, v]) => [q, v[0], v[1]]); };
+    let r = panel(ws, 4, 'Quién pide más · ' + mesLbl(ym), ['Depa / persona', 'Veces', 'Noches'], agrupa('quien'));
+    r = panel(ws, r, 'Quién presta más · ' + mesLbl(ym), ['Cajón de', 'Veces', 'Noches'], agrupa('cajon'));
+    tablaX(ws, r, [['Cajón de', x => x.cajon], ['Prestado a', x => x.quien + (x.det ? ' · ' + x.det : '')], ['Desde', x => x.a, 'date'], ['Hasta', x => x.b, 'date'], ['Noches', x => Math.round((toD(x.b) - toD(x.a)) / 864e5), 'int', 'sum'], ['Tipo', x => x.tipo]], H.sort((a, b) => b.a.localeCompare(a.a)), { titulo: 'Historial de préstamos', id: 'cajones' });
+  }
+  function hCatalogos(wb, D, opts) {
+    const ws = hoja(wb, 'Depas y tarifas', K.gris, [16, 12, 12, 9, 12, 12, 50], 'Depas, tarifas, bloqueos y usuarios', 'Catálogos de la app');
+    const cs = D.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name)), rate = (p, k) => { const x = D.cleaning_rates.find(y => y.property_code === p && y.cleaner_key === k); return x ? Number(x.amount) : null; };
+    let r = tablaX(ws, 4, [['Depa', x => x.code], ['Edificio', x => x.building || ''], ['Tiene cajón', x => x.has_parking ? 'Sí' : 'No'], ['Sótano', x => x.parking_level ?? ''], ['Presta cajón', x => x.lends_parking ? 'Sí' : 'No'], ['Limpieza MGM', x => x.cleaning === false ? 'No' : 'Sí'], ['Liga Airbnb', x => x.airbnb_url || '']], props(D), { titulo: 'Depas', id: 'depas' });
+    r = tablaX(ws, r, [['Depa', x => x.code], ...cs.map(c => [c.name, x => rate(x.code, c.key), 'money0'])], props(D), { titulo: 'Tarifas de limpieza por chica', id: 'tarifas' });
+    r = tablaX(ws, r, [['Depa', x => x.property_code], ['Desde', x => x.date_from, 'date'], ['Hasta', x => x.date_to, 'date'], ['Nota', x => x.note || '']], D.blocks.slice().sort((a, b) => b.date_from.localeCompare(a.date_from)), { titulo: 'Bloqueos N/A', id: 'bloqueos' });
+    r = tablaX(ws, r, [['Nombre', x => x.name || ''], ['Correo', x => x.email], ['Acceso', x => x.role]], D.app_users, { titulo: 'Usuarios', id: 'usuarios' });
+    if (opts.claves) tablaX(ws, r, [['Lugar', x => x.place], ['Clave 1', x => x.code1 || ''], ['Clave 2', x => x.code2 || '']], D.access_codes, { titulo: 'Claves', id: 'claves' });
+  }
+
+  // Respaldo completo (mismo archivo para el correo de las 10 pm y para Drive): cada pestaña con estadísticas y tabla filtrable.
   function buildBackup(ExcelJS, D, today, opts) {
-    opts = opts || {};
+    opts = opts || {}; TN = 0;
     const wb = new ExcelJS.Workbook(); wb.creator = 'MGM Control App';
     const ym = today.slice(0, 7), nx = add(ym + '-28', 7).slice(0, 7), pv = add(ym + '-01', -1).slice(0, 7);
     resumen(wb, D, today);
     for (const m of [ym, nx, pv]) fillCalendar(wb.addWorksheet('Cal ' + MES[+m.slice(5) - 1].slice(0, 3) + m.slice(2, 4), { properties: { tabColor: { argb: K.ink } } }), D, m);
-    const ord = Object.fromEntries(props(D).map((p, i) => [p.code, i]));
-    const cat = t => (t.category_other ? t.category + ': ' + t.category_other : t.category);
-    const rate = (p, k) => { const r = D.cleaning_rates.find(x => x.property_code === p && x.cleaner_key === k); return r ? Number(r.amount) : null; };
-    const bono = Number((D.settings.find(s => s.key === 'bono_domingo') || {}).value ?? 50);
-    const prioCol = { alta: [K.rojoL, K.rojo], media: [K.amaL, K.ama], baja: [K.verdeL, K.verde] };
-    // vistas
-    const ab = (D.tasks || []).filter(t => t.status !== 'terminado').sort((a, b) => ['alta', 'media', 'baja'].indexOf(a.priority) - ['alta', 'media', 'baja'].indexOf(b.priority) || (a.date || '').localeCompare(b.date || ''));
-    table(wb, 'Pendientes abiertos', [['Prioridad', 'priority', 10], ['Depa', 'property_code', 14], ['Descripción', 'description', 46], ['Responsable', 'responsible', 14], ['Fecha', 'date', 12], ['Estatus', 'st', 12], ['Avances', 'notes', 36]],
-      ab.map(t => ({ ...t, priority: (t.priority || '').toUpperCase(), st: ({ en_proceso: 'En proceso', en_pausa: 'En pausa', terminado: 'Terminado' })[t.status] || t.status })),
-      { tab: K.rojo, sub: ab.length + ' pendientes sin terminar · ordenados por prioridad', paint: (row, t) => { const pc = prioCol[(t.priority || '').toLowerCase()]; if (pc) { row.getCell(1).fill = fill(pc[0]); row.getCell(1).font = { bold: true, color: { argb: pc[1] } }; } } });
-    const ini = monday(today);
-    const nomRows = []; D.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(c => { const N = nominaD(D, c.key, ini); N.det.sort((a, b) => a.f.localeCompare(b.f)).forEach(x => nomRows.push({ chica: c.name, f: x.f, dia: DIA3[dow(x.f)], dp: x.dp, t: x.t, b: x.b, tot: x.t + x.b }));
-      if (N.sup) nomRows.push({ chica: c.name, dp: 'Supervisión', tot: N.sup }); if (N.otros) nomRows.push({ chica: c.name, dp: 'Otros', tot: N.otros }); });
-    table(wb, 'Nómina semana', [['Chica', 'chica', 14], ['Fecha', 'f', 12], ['Día', 'dia', 6], ['Depa / concepto', 'dp', 16], ['Tarifa', 't', 11], ['Bono domingo', 'b', 13], ['Total', 'tot', 12]], nomRows,
-      { tab: K.forest, titulo: 'Nómina semana del ' + fmtCorto(ini) + ' al ' + fmtCorto(add(ini, 6)), sub: 'Detalle por chica (incluye supervisión y otros). Usa el filtro de Chica para ver una sola.', totales: ['t', 'b', 'tot'] });
-    gastosPivot(wb, D, today);
-    servicios(wb, D, ym.slice(0, 4));
-    // datos crudos (BD)
-    const T = (n, c, rws, o) => table(wb, 'BD ' + n, c, rws, { tab: K.gris, ...(o || {}) });
-    T('Reservas', [['Departamento', 'property_code'], ['Huésped', 'guest', 22], ['Check in', 'checkin', 12], ['Check out', 'checkout', 12], ['Auto', 'auto', 8], ['Cajón de', 'parking_from', 12], ['Chica', 'chica', 12], ['Estatus', 'status', 12], ['Monto', 'amount', 12]],
-      D.reservations.slice().sort((a, b) => a.checkin.localeCompare(b.checkin) || (ord[a.property_code] ?? 99) - (ord[b.property_code] ?? 99))
-        .map(r => ({ ...r, auto: r.has_car == null ? '' : r.has_car ? 'Sí' : 'No', chica: nombre(D, r.cleaner_key), amount: r.amount == null ? null : Number(r.amount) })), { xSplit: 1 });
-    T('Nómina limpiezas', [['Semana (lunes)', 'sem', 14], ['Chica', 'chica'], ['Fecha', 'f', 12], ['Departamento', 'dp'], ['Tipo', 'tipo', 10], ['Tarifa', 't', 10], ['Bono domingo', 'b', 14], ['Total', 'tot', 10]],
-      [...activas(D).filter(r => r.cleaner_key).map(r => ({ k: r.cleaner_key, f: r.checkout, dp: r.property_code, tipo: 'Salida' })), ...(D.cleanings || []).filter(x => x.cleaner_key).map(x => ({ k: x.cleaner_key, f: x.date, dp: x.property_code, tipo: 'Extra' }))]
-        .sort((a, b) => a.f.localeCompare(b.f))
-        .map(r => { const t = rate(r.dp, r.k) || 0, b = dow(r.f) === 0 ? bono : 0; return { sem: monday(r.f), chica: nombre(D, r.k), f: r.f, dp: r.dp, tipo: r.tipo, t, b, tot: t + b }; }), { totales: ['t', 'b', 'tot'] });
-    T('Limpiezas extra', [['Departamento', 'property_code'], ['Fecha', 'date', 12], ['Chica', 'chica'], ['Nota', 'note', 36]], (D.cleanings || []).slice().sort((a, b) => a.date.localeCompare(b.date)).map(x => ({ ...x, chica: nombre(D, x.cleaner_key) })));
-    T('Nómina otros', [['Semana (lunes)', 'week_start', 14], ['Chica', 'chica'], ['Descripción', 'description', 36], ['Monto', 'amount', 10]],
-      D.payroll_extras.slice().sort((a, b) => a.week_start.localeCompare(b.week_start)).map(x => ({ ...x, chica: nombre(D, x.cleaner_key), amount: Number(x.amount) })), { totales: ['amount'] });
-    T('Nómina pagos', [['Semana (lunes)', 'week_start', 14], ['Chica', 'chica'], ['Fecha de pago', 'date', 14], ['Forma', 'method', 14], ['Monto', 'amount', 10], ['Nota', 'note', 30]],
-      D.payroll_payments.slice().sort((a, b) => a.date.localeCompare(b.date)).map(x => ({ ...x, chica: nombre(D, x.cleaner_key), amount: Number(x.amount) })), { totales: ['amount'] });
-    for (const [kind, name] of [['gasto', 'Gastos'], ['ingreso', 'Ingresos']])
-      T(name, [['Mes', 'mes', 10], ['Departamento', 'property_code'], ['Categoría', 'cat', 26], ['Fecha', 'date', 12], ['Descripción', 'description', 40], ['Monto', 'amount', 12], ['Capturado', 'cap', 10], ['Fotos', 'nf', 8]],
-        D.transactions.filter(t => t.kind === kind).sort((a, b) => a.date.slice(0, 7).localeCompare(b.date.slice(0, 7)) || (ord[a.property_code] ?? 99) - (ord[b.property_code] ?? 99) || cat(a).localeCompare(cat(b)) || a.date.localeCompare(b.date))
-          .map(t => ({ ...t, mes: t.date.slice(0, 7), cat: cat(t), amount: Number(t.amount), cap: t.checked ? 'Sí' : 'No', nf: (t.photos || []).length })), { totales: ['amount'] });
-    if ((D.service_payments || []).length) { const acc = Object.fromEntries(D.service_accounts.map(a => [a.id, a]));
-      T('Servicios', [['Servicio', 'sv', 13], ['Propiedad', 'label', 18], ['Contrato', 'contrato', 18], ['Mes', 'period', 10], ['Estado', 'status', 12], ['Monto', 'amount', 12], ['Fecha de pago', 'paid_on', 13], ['Nota', 'note', 24]],
-        D.service_payments.map(p => ({ ...p, sv: (acc[p.account_id] || {}).service, label: (acc[p.account_id] || {}).label, contrato: (acc[p.account_id] || {}).contrato, amount: p.amount == null ? null : Number(p.amount) }))
-          .sort((a, b) => (a.sv || '').localeCompare(b.sv || '') || (a.label || '').localeCompare(b.label || '') || a.period.localeCompare(b.period)), { totales: ['amount'] }); }
-    T('Pendientes', [['Departamento', 'property_code'], ['Descripción', 'description', 40], ['Responsable', 'responsible'], ['Fecha', 'date', 12], ['Prioridad', 'priority', 10], ['Estatus', 'status', 12], ['Avances', 'notes', 40]], D.tasks);
-    T('Compras', [['Descripción', 'description', 40], ['Lugar', 'store'], ['Responsable', 'responsible'], ['Fecha', 'date', 12], ['Comprado', 'ok', 10]], D.purchases.map(p => ({ ...p, ok: p.done ? 'Sí' : 'No' })));
-    T('Depas y ligas', [['Departamento', 'code'], ['Edificio', 'building'], ['Tiene cajón', 'hp', 12], ['Sótano', 'parking_level', 8], ['Presta cajón', 'lp', 12], ['Liga Airbnb', 'airbnb_url', 50]],
-      props(D).map(p => ({ ...p, hp: p.has_parking ? 'Sí' : 'No', lp: p.lends_parking ? 'Sí' : 'No' })));
-    const cs = D.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name));
-    T('Tarifas limpieza', [['Departamento', 'code'], ...cs.map(c => [c.name, c.key, 10])], props(D).map(p => ({ code: p.code, ...Object.fromEntries(cs.map(c => [c.key, rate(p.code, c.key)])) })));
-    T('Descansos', [['Fecha', 'date', 12], ['Chica', 'chica']], D.days_off.slice().sort((a, b) => a.date.localeCompare(b.date)).map(o => ({ ...o, chica: nombre(D, o.cleaner_key) })));
-    T('Bloqueos NA', [['Departamento', 'property_code'], ['Desde', 'date_from', 12], ['Hasta', 'date_to', 12], ['Nota', 'note', 30]], D.blocks);
-    T('Cajones apartados', [['Cajón', 'cajon'], ['Nombre', 'name', 24], ['Desde', 'date_from', 12], ['Hasta', 'date_to', 12]], D.parking_loans || []);
-    if (opts.claves) T('Claves', [['Lugar', 'place', 20], ['Clave 1', 'code1'], ['Clave 2', 'code2']], D.access_codes);
-    T('Usuarios', [['Nombre', 'name'], ['Correo', 'email', 30], ['Acceso', 'role']], D.app_users);
+    hReservas(wb, D, today); hNomina(wb, D, today); hLimpiezas(wb, D, today); hFinanzas(wb, D, today);
+    const sv = servicios(wb, D, ym.slice(0, 4));
+    if (sv && (D.service_payments || []).length) { const acc = Object.fromEntries(D.service_accounts.map(a => [a.id, a])), last = sv.lastRow ? sv.lastRow.number + 2 : 6;
+      tablaX(sv, last, [['Servicio', x => (acc[x.account_id] || {}).service], ['Propiedad', x => (acc[x.account_id] || {}).label], ['Contrato', x => (acc[x.account_id] || {}).contrato || ''], ['Mes', x => x.period], ['Estado', x => ({ pagado: 'Pagado', na: 'N/A', saldo_favor: 'Saldo a favor', pendiente: 'Pendiente' })[x.status] || x.status],
+        ['Monto', x => x.amount == null ? null : Number(x.amount), 'money', 'sum'], ['Fecha de pago', x => x.paid_on, 'date'], ['Nota', x => x.note || '']], D.service_payments.slice().sort((a, b) => b.period.localeCompare(a.period)), { titulo: 'Todos los registros de pago', id: 'servicios' }); }
+    hPendientes(wb, D, today); hCompras(wb, D); hCajones(wb, D, today); hCatalogos(wb, D, opts);
     return wb;
   }
   globalThis.MGMX = { fillCalendar, buildBackup, MES };
