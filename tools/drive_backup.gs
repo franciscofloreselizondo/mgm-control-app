@@ -19,6 +19,7 @@ function cadaHora() {
 }
 function subirRespaldo() {
   const key = PropertiesService.getScriptProperties().getProperty('MGM_KEY');
+  if (!key) throw new Error('Falta la propiedad MGM_KEY: Configuración del proyecto → Propiedades de la secuencia de comandos → Agregar propiedad (nombre MGM_KEY, valor = tu clave) → Guardar.');
   const r = UrlFetchApp.fetch(URL_FN, { headers: { 'x-mgm-key': key }, muteHttpExceptions: true });
   if (r.getResponseCode() !== 200) throw new Error('Respaldo falló: ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200));
   const nombre = 'MGM_respaldo_' + Utilities.formatDate(new Date(), 'America/Mexico_City', 'yyyy-MM-dd_HH') + 'h.xlsx';
