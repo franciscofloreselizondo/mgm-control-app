@@ -17,3 +17,12 @@ Qué hace esta app (copiar en cada app nueva):
 
 Si aun así pasa en un teléfono: abrir `https://…/mgm-control-app/?reset=1`, o Modo Avión 15 s,
 o Ajustes > Apps > Safari > Avanzado > Datos de sitios web > borrar `github.io`.
+
+# Respaldo restaurable (estándar para todas las apps)
+
+- Datos: Excel legible (Resumen + una pestaña por módulo con estadísticas y tabla de Excel con filtros/totales). Mismo archivo por correo y en Drive.
+- Paquete semanal (lunes 6 am) `APP_app_AAAA-MM-DD.zip`: `esquema.sql` generado en vivo desde la base (tablas, llaves, índices, funciones, triggers, RLS/policies, storage, realtime, cron) + archivos publicados de la app + `LEEME-restaurar.txt`. Se guardan 12.
+- Fotos/archivos de storage: copia nocturna incremental a Drive.
+- Endpoint protegido con header `x-*-key` contra un secret; la función SQL del esquema solo la ejecuta service_role (probar que anon recibe "permission denied").
+- Subida con Google Apps Script en la cuenta del dueño (NO cuenta de servicio: no tiene espacio en un Drive personal). Nombre de la propiedad EXACTO (mayúsculas).
+- MGM Control App: carpeta Co-Host MGM → "Respaldos app" (Excel cada 4 h 7–23 h, 30 días; zip lunes 6 am; Comprobantes 23 h). Correo a María 10 pm.
