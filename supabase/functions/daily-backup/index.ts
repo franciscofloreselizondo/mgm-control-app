@@ -407,9 +407,9 @@ async function syncAirbnb() {
       for (const e of evs) {
         let x = res.find((y) => y.airbnb_code === e.code);
         if (!x) { // ¿ya la capturó María a mano? se liga por depa + fechas
-          x = mine.find((y) => !y.airbnb_code && y.checkin === e.start && y.checkout === e.end) || mine.find((y) => !y.airbnb_code && y.checkin === e.start);
+          x = mine.find((y) => !y.airbnb_code && y.checkin === e.start && y.checkout === e.end) || mine.find((y) => !y.airbnb_code && y.checkin === e.start) || mine.find((y) => !y.airbnb_code && y.checkin < e.end && y.checkout > e.start);
           if (x) { await sb.from("reservations").update({ airbnb_code: e.code }).eq("id", x.id); x.airbnb_code = e.code; out.ligadas++; await aplicarMail(e.code);
-            if (x.checkout !== e.end) { await sb.from("reservations").update({ checkout: e.end, review: true }).eq("id", x.id); await log(p.code, "cambio", `${x.guest}: salida ${x.checkout} → ${e.end} (${e.code})`, x.id); out.cambios++; }
+            if (x.checkin !== e.start || x.checkout !== e.end) { await sb.from("reservations").update({ checkin: e.start, checkout: e.end, review: true }).eq("id", x.id); await log(p.code, "cambio", `${x.guest}: ${x.checkin}→${x.checkout} ahora ${e.start}→${e.end} según Airbnb (${e.code})`, x.id); out.cambios++; x.checkin = e.start; x.checkout = e.end; }
             continue; }
         }
         if (x) {
