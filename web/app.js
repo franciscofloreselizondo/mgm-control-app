@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '51';
+const APP_VER = '52';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -134,6 +134,7 @@ const props = () => S.t.properties.filter(p => p.active !== false && !esCajon(p)
 const prop = c => S.t.properties.find(p => p.code === c);
 const isQ = c => (prop(c) || {}).building === 'Qalina';
 const cleaners = () => S.t.cleaners.filter(c => c.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+const NA = 'NA'; // "N/A": esta salida no lleva limpieza (cuenta como resuelta, no entra a nómina)
 const nombre = k => (S.t.cleaners.find(c => c.key === k) || {}).name || k || '';
 const rate = (p, k) => { const r = S.t.cleaning_rates.find(x => x.property_code === p && x.cleaner_key === k); return r ? Number(r.amount) : null; };
 const setting = (k, d) => { const s = S.t.settings.find(x => x.key === k); return s ? s.value : d; };
@@ -381,7 +382,7 @@ $('sheet').addEventListener('click', async e => {
   if (d.close) return closeSheet();
   if (d.rmph !== undefined && F) { const k = F.fields(F.v).find(f => f && f.type === 'photos').k; F.v[k].splice(+d.rmph, 1); return drawForm(); }
   if (d.act !== undefined && F) { const a = F.actions[+d.act]; if (a.confirm && !confirmTap(b)) return; const v = F.v; closeSheet(); return a.run(v); }
-  if (d.pick !== undefined) { closeSheet(); return upd('reservations', { id: d.id }, { cleaner_key: d.pick || null }, d.pick ? 'Asignado a ' + nombre(d.pick) : 'Sin asignar'); }
+  if (d.pick !== undefined) { closeSheet(); return upd('reservations', { id: d.id }, { cleaner_key: d.pick || null }, d.pick === NA ? 'Marcada N/A · no se limpia' : d.pick ? 'Asignado a ' + nombre(d.pick) : 'Sin asignar'); }
   if (d.editres) { closeSheet(); return resForm(d.editres); }
   if (d.wacopy) { const t = $('waTxt').value; try { await navigator.clipboard.writeText(t); toast('Copiado, pégalo en WhatsApp'); } catch (_) { $('waTxt').select(); document.execCommand('copy'); toast('Copiado'); } return; }
   if (d.wapl) { S.waTit = $('waTit').value; S.waPie = $('waPie').value; S.waSel.has(d.wapl) ? S.waSel.delete(d.wapl) : S.waSel.add(d.wapl); return sheetWA(); }
@@ -408,7 +409,7 @@ function prestadores(v, selfId) {
     return [p.code, `${p.code} · sótano ${p.parking_level ?? '?'}${busy ? ' · OCUPADO' : ap ? ' · APARTADO a ' + ap.name : ''}`];
   });
 }
-function cleanerOpts(depa, fecha, actual) { return [['', '— sin asignar —'], ...cleaners().filter(c => !(fecha && descansa(fecha, c.key)) || c.key === actual).map(c => { const t = rate(depa, c.key); return [c.key, c.name + (t != null ? ' · ' + money(t) : '') + (fecha && descansa(fecha, c.key) ? ' · descansa' : '')]; })]; }
+function cleanerOpts(depa, fecha, actual) { return [['', '— sin asignar —'], [NA, 'N/A · no se limpia'], ...cleaners().filter(c => !(fecha && descansa(fecha, c.key)) || c.key === actual).map(c => { const t = rate(depa, c.key); return [c.key, c.name + (t != null ? ' · ' + money(t) : '') + (fecha && descansa(fecha, c.key) ? ' · descansa' : '')]; })]; }
 async function syncIngreso(r) {
   if (!isSuper()) return;
   const ex = S.t.transactions.find(t => t.reservation_id === r.id);
@@ -523,7 +524,7 @@ function sheetAsignar(id) {
   const r = S.t.reservations.find(x => x.id === id); if (!r) return;
   sheet(`<h3>${esc(r.property_code)} · ${fmt(r.checkout)}</h3><div class="m">Sale ${esc(r.guest)}${entraMismoDia(r) ? ' · entra otro huésped ese día' : ''}</div>
     <div class="chips">${cleaners().filter(c => !descansa(r.checkout, c.key) || r.cleaner_key === c.key).map(c => { const off = descansa(r.checkout, c.key), t = rate(r.property_code, c.key); return `<button class="chip ${r.cleaner_key === c.key ? 'on' : ''}" data-pick="${c.key}" data-id="${r.id}" ${off ? 'style="opacity:.45"' : ''}>${esc(c.name)}${t != null ? ' · ' + money(t) : ''}${off ? ' · descansa' : ''}</button>`; }).join('')}</div>
-    <div class="row" style="margin-top:14px"><button data-pick="" data-id="${r.id}">Quitar asignación</button><button data-editres="${r.id}">Editar reserva</button><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
+    <div class="row" style="margin-top:14px"><button class="${r.cleaner_key === NA ? 'pri' : ''}" data-pick="${NA}" data-id="${r.id}">N/A · no se limpia</button><button data-pick="" data-id="${r.id}">Quitar asignación</button><button data-editres="${r.id}">Editar reserva</button><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
 }
 function sheetLista(titulo, rs, modo) {
   sheet(`<h3>${esc(titulo)}</h3>${rs.length ? rs.map(r => { const p = prop(r.property_code) || {};
@@ -543,12 +544,12 @@ function textoAsignaciones(d, conClaves) {
   const P = new Set(props().filter(p => p.cleaning !== false).map(p => p.code)), act = activas();
   const L = [...act.filter(r => r.checkout === d && P.has(r.property_code)).map(r => ({ k: r.cleaner_key, dp: r.property_code, t: 'Salida', ent: act.find(x => x.property_code === r.property_code && x.checkin === d) })),
     ...S.t.cleanings.filter(x => x.date === d && P.has(x.property_code)).map(x => ({ k: x.cleaner_key, dp: x.property_code, t: 'Limpieza extra' + (x.note ? ' (' + x.note + ')' : '') }))];
-  const by = {}; L.forEach(x => (by[x.k || ''] = by[x.k || ''] || []).push(x));
+  const by = {}; L.filter(x => x.k !== NA).forEach(x => (by[x.k || ''] = by[x.k || ''] || []).push(x));
   const fecha = fmt(d);
   const clave = c => { const a = S.t.access_codes.find(x => x.place === c); return a && (a.code1 || a.code2) ? ' · clave ' + [a.code1, a.code2].filter(Boolean).join(' / ') : ''; };
   const bloque = k => `*${k ? nombre(k) : 'SIN ASIGNAR'}* · ${fecha}\n` + by[k].map(x => `• ${x.dp} – ${x.t}${x.ent ? ' · entra huésped hoy' : ''}${conClaves ? clave(x.dp) : ''}`).join('\n');
   const keys = Object.keys(by).sort((a, b) => (a ? nombre(a) : 'zz').localeCompare(b ? nombre(b) : 'zz'));
-  return { keys, fecha, total: L.length, todo: keys.length ? `🧹 *Limpiezas ${fecha}*\n\n` + keys.map(bloque).join('\n\n') : `Sin limpiezas el ${fecha}.`, bloque };
+  return { keys, fecha, total: L.filter(x => x.k !== NA).length, todo: keys.length ? `🧹 *Limpiezas ${fecha}*\n\n` + keys.map(bloque).join('\n\n') : `Sin limpiezas el ${fecha}.`, bloque };
 }
 function sheetAsigWA() {
   S.waD = S.waD || add(today(), 1); const T = textoAsignaciones(S.waD, S.waClv);
@@ -608,7 +609,7 @@ VIEWS.calendario = () => {
           else if (noche && noche.has_car === false) es = 'No';
         }
         const xt = exm[p.code + '|' + d];
-        const k = sale && !sale.cleaner_key && !limpiaMGM(p.code) ? '' : sale ? `<button class="k ${sale.cleaner_key ? '' : 'vacio'}" data-asig="${sale.id}">${esc(sale.cleaner_key || '+')}</button>` : xt ? `<button class="k ${xt.cleaner_key ? '' : 'vacio'}" data-extra="${xt.id}">${esc(xt.cleaner_key || '+')}</button>` : '';
+        const k = sale && !sale.cleaner_key && !limpiaMGM(p.code) ? '' : sale ? `<button class="k ${sale.cleaner_key ? '' : 'vacio'}" data-asig="${sale.id}">${sale.cleaner_key === NA ? 'N/A' : esc(sale.cleaner_key || '+')}</button>` : xt ? `<button class="k ${xt.cleaner_key ? '' : 'vacio'}" data-extra="${xt.id}">${xt.cleaner_key === NA ? 'N/A' : esc(xt.cleaner_key || '+')}</button>` : '';
         const c3 = sale ? esc(sale.guest) : xt ? '<span class="xl">Limpieza</span>' : '';
         h += `<td class="ds oc" ${noche ? `data-res="${noche.id}"` : ''}>${oc}</td><td class="es">${es}</td><td class="en" ${sale ? `data-res="${sale.id}"` : xt ? `data-extra="${xt.id}"` : ''}>${c3}</td><td>${k}</td>`;
       });
@@ -1259,7 +1260,7 @@ VIEWS.supuestos = () => {
   h += '</table></div>';
   const DEP = S.t.properties.filter(p => !esCajon(p)).sort((a, b) => (a.active === false) - (b.active === false) || (a.sort ?? 0) - (b.sort ?? 0) || a.code.localeCompare(b.code));
   h += `<div class="row"><h2 class="sp">Depas</h2><button data-newdepa="1">＋ Agregar</button></div><div class="m" style="margin-bottom:6px">Desactivar un depa lo quita del calendario, de Hoy y de la sincronización con Airbnb. Su historial se conserva.</div><div class="card list">${DEP.map(p => `<div class="it"><span class="dp">${esc(p.code)}</span><div class="sp"><span class="m">${esc(p.building || '')}${p.ical_url || p.ical_extra ? ' · 🔄 Airbnb' : ''}</span>${p.active === false ? ' <span class="b baja">INACTIVO</span>' : ''}</div><button data-togdepa="${esc(p.code)}" class="${p.active === false ? 'pri' : ''}">${p.active === false ? 'Activar' : 'Desactivar'}</button></div>`).join('')}</div>`;
-  h += `<div class="row"><h2 class="sp">Chicas</h2><button data-newcleaner="1">＋ Agregar</button></div><div class="card list">${S.t.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => `<div class="it"><span class="b n">${esc(c.key)}</span><div class="sp">${esc(c.name)}${c.active === false ? ' <span class="m">(inactiva)</span>' : ''}</div><button data-togcleaner="${esc(c.key)}">${c.active === false ? 'Activar' : 'Desactivar'}</button></div>`).join('')}</div>`;
+  h += `<div class="row"><h2 class="sp">Chicas</h2><button data-newcleaner="1">＋ Agregar</button></div><div class="card list">${S.t.cleaners.filter(c => c.key !== NA).sort((a, b) => a.name.localeCompare(b.name)).map(c => `<div class="it"><span class="b n">${esc(c.key)}</span><div class="sp">${esc(c.name)}${c.active === false ? ' <span class="m">(inactiva)</span>' : ''}</div><button data-togcleaner="${esc(c.key)}">${c.active === false ? 'Activar' : 'Desactivar'}</button></div>`).join('')}</div>`;
   h += `<h2>Limpieza a cargo de MGM</h2><div class="card"><div class="m" style="margin-bottom:6px">Desmarca los depas cuya limpieza no hacemos: no pedirán asignar chica ni entran a nómina.</div><div class="chips">${props().map(p => `<label class="chip ${p.cleaning !== false ? 'on' : ''}"><input type="checkbox" class="chk" data-pp="${esc(p.code)}|cleaning" ${p.cleaning !== false ? 'checked' : ''}> ${esc(p.code)}</label>`).join('')}</div></div>`;
   h += `<div class="row"><h2 class="sp">Usuarios</h2><button data-newuser="1">＋ Agregar</button></div><div class="card list">${S.t.app_users.map(u => `<div class="it"><span class="avatar sm">${avatarHTML(u)}</span><div class="sp"><div>${esc(u.name || u.email)}</div><div class="m">${esc(u.email)} </div></div>${u.email.toLowerCase() === S.email.toLowerCase() ? '<span class="m">tú</span>' : `<select data-urole="${esc(u.email)}">${ROLE_OPTS.map(([v]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${v === 'superadmin' ? 'Superadmin' : v === 'socio' ? 'Socio' : 'Finanzas'}</option>`).join('')}</select><button data-deluser="${esc(u.email)}">Quitar</button>`}</div>`).join('')}</div>`;
   const be = setting('backup_emails', []);

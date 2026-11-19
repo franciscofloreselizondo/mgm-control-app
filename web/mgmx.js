@@ -254,7 +254,7 @@
   }
   function hNomina(wb, D, today) {
     const ws = hoja(wb, 'Nómina', K.forest, [14, 14, 12, 7, 16, 10, 11, 11, 12, 14], 'Nómina de limpieza', 'Semana actual y últimas 6 semanas arriba · detalle, pagos y otros abajo');
-    const ini = monday(today), cs = D.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const ini = monday(today), cs = D.cleaners.filter(c => c.key !== 'NA').sort((a, b) => a.name.localeCompare(b.name));
     const cur = cs.map(c => [c.name, nominaD(D, c.key, ini)]).filter(([, N]) => N.n || N.total || N.pagado);
     let r = panel(ws, 4, 'Semana del ' + fmtCorto(ini) + ' al ' + fmtCorto(add(ini, 6)), ['Chica', 'Limpiezas', 'Supervisión', 'Otros', 'Total', 'Pagado', 'Saldo'],
       [...cur.map(([n, N]) => [n, N.n, N.sup, N.otros, N.total, N.pagado, N.saldo]), ['TOTAL', ...[0, 1, 2, 3, 4, 5].map(i => cur.reduce((t, [, N]) => t + [N.n, N.sup, N.otros, N.total, N.pagado, N.saldo][i], 0))]], [null, null, MONEY0, MONEY0, MONEY0, MONEY0, MONEY0]);
@@ -270,7 +270,7 @@
   }
   function hLimpiezas(wb, D, today) {
     const ws = hoja(wb, 'Limpiezas', K.forest, [16, 12, 12, 12, 12, 12, 12, 30], 'Limpiezas', 'Cuántas hace cada chica por mes · descansos · limpiezas extra');
-    const ms = mesesAtras(today.slice(0, 7), 6), cs = D.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const ms = mesesAtras(today.slice(0, 7), 6), cs = D.cleaners.filter(c => c.key !== 'NA').sort((a, b) => a.name.localeCompare(b.name));
     const cnt = (k, m) => activas(D).filter(x => x.cleaner_key === k && x.checkout.startsWith(m)).length + (D.cleanings || []).filter(x => x.cleaner_key === k && x.date.startsWith(m)).length;
     const piv = cs.map(c => [c.name, ...ms.map(m => cnt(c.key, m))]).filter(v => v.slice(1).some(x => x));
     let r = panel(ws, 4, 'Limpiezas por chica y mes', ['Chica', ...ms.map(mesLbl)], [...piv, ['TOTAL', ...ms.map((_, i) => piv.reduce((t, v) => t + v[i + 1], 0))]]);
@@ -334,7 +334,7 @@
   }
   function hCatalogos(wb, D, opts) {
     const ws = hoja(wb, 'Depas y tarifas', K.gris, [16, 12, 12, 9, 12, 12, 50], 'Depas, tarifas, bloqueos y usuarios', 'Catálogos de la app');
-    const cs = D.cleaners.slice().sort((a, b) => a.name.localeCompare(b.name)), rate = (p, k) => { const x = D.cleaning_rates.find(y => y.property_code === p && y.cleaner_key === k); return x ? Number(x.amount) : null; };
+    const cs = D.cleaners.filter(c => c.key !== 'NA').sort((a, b) => a.name.localeCompare(b.name)), rate = (p, k) => { const x = D.cleaning_rates.find(y => y.property_code === p && y.cleaner_key === k); return x ? Number(x.amount) : null; };
     let r = tablaX(ws, 4, [['Depa', x => x.code], ['Edificio', x => x.building || ''], ['Tiene cajón', x => x.has_parking ? 'Sí' : 'No'], ['Sótano', x => x.parking_level ?? ''], ['Presta cajón', x => x.lends_parking ? 'Sí' : 'No'], ['Limpieza MGM', x => x.cleaning === false ? 'No' : 'Sí'], ['Liga Airbnb', x => x.airbnb_url || '']], props(D), { titulo: 'Depas', id: 'depas' });
     r = tablaX(ws, r, [['Depa', x => x.code], ...cs.map(c => [c.name, x => rate(x.code, c.key), 'money0'])], props(D), { titulo: 'Tarifas de limpieza por chica', id: 'tarifas' });
     r = tablaX(ws, r, [['Depa', x => x.property_code], ['Desde', x => x.date_from, 'date'], ['Hasta', x => x.date_to, 'date'], ['Nota', x => x.note || '']], D.blocks.slice().sort((a, b) => b.date_from.localeCompare(a.date_from)), { titulo: 'Bloqueos N/A', id: 'bloqueos' });
