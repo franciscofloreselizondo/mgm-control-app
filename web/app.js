@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '52';
+const APP_VER = '53';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -134,7 +134,7 @@ const props = () => S.t.properties.filter(p => p.active !== false && !esCajon(p)
 const prop = c => S.t.properties.find(p => p.code === c);
 const isQ = c => (prop(c) || {}).building === 'Qalina';
 const cleaners = () => S.t.cleaners.filter(c => c.active !== false).sort((a, b) => a.name.localeCompare(b.name));
-const NA = 'NA'; // "N/A": esta salida no lleva limpieza (cuenta como resuelta, no entra a nómina)
+const NA = 'NA'; const hayNA = () => S.t.cleaners.some(c => c.key === NA); // "N/A": esta salida no lleva limpieza (cuenta como resuelta, no entra a nómina)
 const nombre = k => (S.t.cleaners.find(c => c.key === k) || {}).name || k || '';
 const rate = (p, k) => { const r = S.t.cleaning_rates.find(x => x.property_code === p && x.cleaner_key === k); return r ? Number(r.amount) : null; };
 const setting = (k, d) => { const s = S.t.settings.find(x => x.key === k); return s ? s.value : d; };
@@ -409,7 +409,7 @@ function prestadores(v, selfId) {
     return [p.code, `${p.code} · sótano ${p.parking_level ?? '?'}${busy ? ' · OCUPADO' : ap ? ' · APARTADO a ' + ap.name : ''}`];
   });
 }
-function cleanerOpts(depa, fecha, actual) { return [['', '— sin asignar —'], [NA, 'N/A · no se limpia'], ...cleaners().filter(c => !(fecha && descansa(fecha, c.key)) || c.key === actual).map(c => { const t = rate(depa, c.key); return [c.key, c.name + (t != null ? ' · ' + money(t) : '') + (fecha && descansa(fecha, c.key) ? ' · descansa' : '')]; })]; }
+function cleanerOpts(depa, fecha, actual) { return [['', '— sin asignar —'], ...(hayNA() ? [[NA, 'N/A · no se limpia']] : []), ...cleaners().filter(c => !(fecha && descansa(fecha, c.key)) || c.key === actual).map(c => { const t = rate(depa, c.key); return [c.key, c.name + (t != null ? ' · ' + money(t) : '') + (fecha && descansa(fecha, c.key) ? ' · descansa' : '')]; })]; }
 async function syncIngreso(r) {
   if (!isSuper()) return;
   const ex = S.t.transactions.find(t => t.reservation_id === r.id);
@@ -524,7 +524,7 @@ function sheetAsignar(id) {
   const r = S.t.reservations.find(x => x.id === id); if (!r) return;
   sheet(`<h3>${esc(r.property_code)} · ${fmt(r.checkout)}</h3><div class="m">Sale ${esc(r.guest)}${entraMismoDia(r) ? ' · entra otro huésped ese día' : ''}</div>
     <div class="chips">${cleaners().filter(c => !descansa(r.checkout, c.key) || r.cleaner_key === c.key).map(c => { const off = descansa(r.checkout, c.key), t = rate(r.property_code, c.key); return `<button class="chip ${r.cleaner_key === c.key ? 'on' : ''}" data-pick="${c.key}" data-id="${r.id}" ${off ? 'style="opacity:.45"' : ''}>${esc(c.name)}${t != null ? ' · ' + money(t) : ''}${off ? ' · descansa' : ''}</button>`; }).join('')}</div>
-    <div class="row" style="margin-top:14px"><button class="${r.cleaner_key === NA ? 'pri' : ''}" data-pick="${NA}" data-id="${r.id}">N/A · no se limpia</button><button data-pick="" data-id="${r.id}">Quitar asignación</button><button data-editres="${r.id}">Editar reserva</button><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
+    <div class="row" style="margin-top:14px">${hayNA() ? `<button class="${r.cleaner_key === NA ? 'pri' : ''}" data-pick="${NA}" data-id="${r.id}">N/A · no se limpia</button>` : ''}<button data-pick="" data-id="${r.id}">Quitar asignación</button><button data-editres="${r.id}">Editar reserva</button><span class="sp"></span><button data-close="1">Cerrar</button></div>`);
 }
 function sheetLista(titulo, rs, modo) {
   sheet(`<h3>${esc(titulo)}</h3>${rs.length ? rs.map(r => { const p = prop(r.property_code) || {};
