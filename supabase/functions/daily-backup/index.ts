@@ -394,18 +394,23 @@ function parseICS(txt: string) {
 }
 async function syncAirbnb() {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
-  const props = ((await loadAll("properties")) as { code: string; ical_url?: string; active?: boolean }[]).filter((p) => p.ical_url && p.active !== false);
+  // ical_extra: calendario de un anuncio que ocupa varios depas (p. ej. LH 2005 completo = LHA + LHB, lock-off)
+  const props = ((await loadAll("properties")) as { code: string; ical_url?: string; ical_extra?: string; active?: boolean }[]).filter((p) => (p.ical_url || p.ical_extra) && p.active !== false);
   const res = (await loadAll("reservations")) as { id: string; property_code: string; guest: string; checkin: string; checkout: string; status: string; airbnb_code?: string }[];
   const out = { depas: props.length, altas: 0, cambios: 0, bajas: 0, ligadas: 0, errores: [] as string[] };
   const log = (property_code: string, action: string, detail: string, reservation_id?: string) => sb.from("sync_log").insert({ property_code, action, detail, reservation_id });
   for (const p of props) {
     try {
-      const r = await fetch(p.ical_url!, { headers: { "user-agent": "MGM Control App" } }); const txt = await r.text();
-      if (!r.ok || !txt.includes("BEGIN:VCALENDAR")) { out.errores.push(p.code + ": " + r.status); continue; }
-      const evs = parseICS(txt).filter((e) => e.code && e.start && e.end && e.end >= today);
+      let evs: ReturnType<typeof parseICS> = [], fallo = false;
+      for (const u of [p.ical_url, p.ical_extra].filter(Boolean) as string[]) {
+        const r = await fetch(u, { headers: { "user-agent": "MGM Control App" } }); const txt = await r.text();
+        if (!r.ok || !txt.includes("BEGIN:VCALENDAR")) { out.errores.push(p.code + ": " + r.status); fallo = true; break; }
+        evs = evs.concat(parseICS(txt).filter((e) => e.code && e.start && e.end && e.end >= today));
+      }
+      if (fallo) continue;
       const mine = res.filter((x) => x.property_code === p.code && x.status !== "cancelada");
       for (const e of evs) {
-        let x = res.find((y) => y.airbnb_code === e.code);
+        let x = res.find((y) => y.airbnb_code === e.code && y.property_code === p.code);
         if (!x) { // ¿ya la capturó María a mano? se liga por depa + fechas
           x = mine.find((y) => !y.airbnb_code && y.checkin === e.start && y.checkout === e.end) || mine.find((y) => !y.airbnb_code && y.checkin === e.start) || mine.find((y) => !y.airbnb_code && y.checkin < e.end && y.checkout > e.start);
           if (x) { await sb.from("reservations").update({ airbnb_code: e.code }).eq("id", x.id); x.airbnb_code = e.code; out.ligadas++; await aplicarMail(e.code);
@@ -455,15 +460,19 @@ async function ingestAirbnb(body: { mails?: { id: string; subject: string; body:
 }
 async function aplicarMail(code: string) {
   const { data: am } = await sb.from("airbnb_mail").select("*").eq("code", code).maybeSingle();
-  const { data: r } = await sb.from("reservations").select("id,guest,amount,property_code").eq("airbnb_code", code).maybeSingle();
-  if (!am || !r) return false;
+  const { data: rs } = await sb.from("reservations").select("id,guest,amount,property_code").eq("airbnb_code", code);
+  if (!am || !rs?.length) return false;
+  let ok = false;
+  for (const r of rs) {
   const patch: Record<string, unknown> = {};
   if (am.guest && (!r.guest || r.guest.startsWith("Airbnb HM"))) patch.guest = am.guest;
-  if (am.amount && !r.amount) patch.amount = am.amount;
-  if (!Object.keys(patch).length) return false;
+  if (am.amount && !r.amount && rs.length === 1) patch.amount = am.amount; // lock-off (2 depas): el monto lo reparte María
+  if (!Object.keys(patch).length) continue;
   await sb.from("reservations").update(patch).eq("id", r.id);
   await sb.from("sync_log").insert({ property_code: r.property_code, action: "correo", detail: `Del correo de Airbnb: ${patch.guest ?? r.guest}${patch.amount ? " · $" + Number(patch.amount).toLocaleString("es-MX") : ""} (${code})`, reservation_id: r.id, seen: true });
-  return true;
+  ok = true;
+  }
+  return ok;
 }
 
 async function loadAll(t: string) {
