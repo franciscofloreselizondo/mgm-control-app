@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '53';
+const APP_VER = '54';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -982,6 +982,7 @@ const PNLQ = [
     { id: 'envio', q: '¿Cómo se entrega el PDF a cada dueño?', opts: ['María lo revisa y lo manda', 'Se envía solo a cada dueño', 'Se envía solo, con copia a María'] }
   ]],
   ['Datos de Airbnb', [
+    { id: 'correos', q: '¿Ya reenvías los correos de Airbnb a la app?', help: 'Confirmaciones, cambios y cancelaciones. De ahí la app toma el huésped y lo que ganas en cada reserva; hoy casi no hay ingresos registrados.', opts: ['Sí, con regla automática en Gmail (todos los depas)', 'Sí, a mano', 'Solo algunos depas o anuncios', 'Todavía no'], ask: '¿Desde qué cuenta, a cuál y desde qué fecha?' },
     { id: 'captura', q: '¿Cómo prefieres cargar los pagos de Airbnb?', help: 'Por reserva se necesita: código HM…, monto bruto, limpieza cobrada, comisión Airbnb, impuestos liquidados, retención ISR, retención IVA, payout neto y fecha de payout.', opts: ['Subir cada mes el CSV de transacciones de Airbnb (recomendado)', 'Captura manual por reserva', 'Las dos'] },
     { id: 'ocup', q: '¿De dónde sale el % de ocupación?', help: 'Ojo: junio dice 96% (Airbnb) pero calculado desde reservas da 57%.', opts: ['Calculado desde las reservas de la app', 'Dato de Airbnb capturado a mano'] },
     { id: 'tarifa', q: '¿De dónde sale la tarifa promedio por noche?', opts: ['Calculada: ingreso ÷ noches', 'Dato de Airbnb capturado a mano'] },
