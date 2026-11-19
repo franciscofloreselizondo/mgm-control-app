@@ -23,6 +23,7 @@ const $ = id => document.getElementById(id);
 const ls = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} } };
 
 const ICON = {
+  park: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M9.5 17V7h3.5a3 3 0 0 1 0 6H9.5"/>',
   home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   task: '<path d="M9 11l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="3"/>',
@@ -31,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '49';
+const APP_VER = '50';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -234,11 +235,11 @@ const MENU = [
   ['usuarios', 'Admin', 'Automatizaciones (prender/apagar) · permisos · actividad · solo superadmin'],
   ['supuestos', 'Supuestos', 'Chicas, cajones, bono, usuarios']
 ];
-const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · calendario, pendientes, compras, claves y ligas', finanzas: 'Finanzas · solo gastos e ingresos' };
-const ROLE_OPTS = [['superadmin', 'Superadmin (todo)'], ['socio', 'Socio (calendario, pendientes, compras, claves, ligas)'], ['finanzas', 'Finanzas (solo gastos e ingresos)']];
+const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · calendario, cajones, pendientes, compras, claves y ligas', finanzas: 'Finanzas · solo gastos e ingresos' };
+const ROLE_OPTS = [['superadmin', 'Superadmin (todo)'], ['socio', 'Socio (calendario, cajones, pendientes, compras, claves, ligas)'], ['finanzas', 'Finanzas (solo gastos e ingresos)']];
 const ACCESS = {
   superadmin: { home: 'hoy', bar: null },
-  socio: { home: 'hoy', bar: [['hoy', 'Hoy', ICON.home, 1], ['calendario', 'Calendario', ICON.cal], ['pendientes', 'Pendientes', ICON.task], ['compras', 'Compras', ICON.cart], ['claves', 'Claves', ICON.key], ['ligas', 'Ligas', ICON.link]] },
+  socio: { home: 'hoy', bar: [['hoy', 'Hoy', ICON.home, 1], ['cajones', 'Cajones', ICON.park], ['calendario', 'Calendario', ICON.cal], ['pendientes', 'Pendientes', ICON.task], ['compras', 'Compras', ICON.cart], ['claves', 'Claves', ICON.key], ['ligas', 'Ligas', ICON.link]] },
   finanzas: { home: 'finanzas', bar: [] }
 };
 const isSuper = () => S.me && S.me.role === 'superadmin';
@@ -1187,7 +1188,7 @@ const PERM = [
   ['Hoy', '✏️', '✏️ sin $', '—'],
   ['Reservas', '✏️', '✏️ vía Cal. sin $', '—'],
   ['Calendario', '✏️', '✏️', '—'],
-  ['Cajones Qalina', '✏️', '—', '—'],
+  ['Cajones Qalina', '✏️', '✏️', '—'],
   ['Nómina', '✏️', '—', '—'],
   ['Limpiezas (descansos, supervisión, tarifas)', '✏️', '—', '—'],
   ['Gastos e ingresos', '✏️', '—', '✏️'],
