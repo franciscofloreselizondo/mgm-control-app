@@ -32,6 +32,11 @@ function reprocesar(dias) {
   GmailApp.search('from:(airbnb.com) label:MGM-airbnb newer_than:' + (dias || 3) + 'd', 0, 100).forEach(th => th.removeLabel(label));
   correosAirbnb();
 }
+// Una vez, después de publicar la función: crea los ingresos de las reservas que ya tenían monto.
+function rellenarIngresos() {
+  const r = UrlFetchApp.fetch(FN.replace('?file=1', '?backfill=ingresos'), { method: 'post', headers: { 'x-mgm-key': clave() }, muteHttpExceptions: true });
+  console.log(r.getResponseCode() + ' ' + r.getContentText());
+}
 // Correos de Airbnb cada 30 min (trigger propio). Ejecutar una vez para crearlo.
 function instalarCorreos() {
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'correosAirbnb').forEach(t => ScriptApp.deleteTrigger(t));

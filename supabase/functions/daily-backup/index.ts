@@ -466,6 +466,29 @@ async function ingestAirbnb(body: { mails?: { id: string; subject: string; body:
   }
   return out;
 }
+// Igual que syncIngreso() del cliente: una reserva con monto > 0 y no cancelada tiene su ingreso en transactions.
+const MES_C = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+const fCorto = (s: string) => { const [, m, d] = (s || "").split("-").map(Number); return m ? d + " " + MES_C[m - 1] : s; };
+async function syncIngresoSrv(id: string) {
+  const { data: r } = await sb.from("reservations").select("id,guest,amount,property_code,checkin,checkout,status").eq("id", id).maybeSingle();
+  if (!r) return;
+  const { data: ex } = await sb.from("transactions").select("id").eq("reservation_id", r.id).eq("kind", "ingreso").maybeSingle();
+  const want = r.status !== "cancelada" && r.amount != null && Number(r.amount) > 0;
+  const data = { kind: "ingreso", date: r.checkin, property_code: r.property_code, category: "Ingreso por reserva",
+    description: `Reserva ${r.guest} · ${fCorto(r.checkin)} → ${fCorto(r.checkout)}`, amount: Number(r.amount) };
+  if (want && ex) await sb.from("transactions").update(data).eq("id", ex.id);
+  else if (want) await sb.from("transactions").insert({ ...data, reservation_id: r.id });
+  else if (ex) await sb.from("transactions").delete().eq("id", ex.id);
+}
+// Relleno de una vez: reservas con monto que se quedaron sin ingreso.
+async function rellenarIngresos() {
+  const { data: rs } = await sb.from("reservations").select("id").gt("amount", 0).neq("status", "cancelada");
+  const { data: tx } = await sb.from("transactions").select("reservation_id").eq("kind", "ingreso").not("reservation_id", "is", null);
+  const con = new Set((tx || []).map((t: { reservation_id: string }) => t.reservation_id));
+  const faltan = (rs || []).filter((r: { id: string }) => !con.has(r.id));
+  for (const r of faltan) await syncIngresoSrv(r.id);
+  return { reservas_con_monto: rs?.length ?? 0, ingresos_creados: faltan.length };
+}
 async function aplicarMail(code: string) {
   const { data: am } = await sb.from("airbnb_mail").select("*").eq("code", code).maybeSingle();
   const { data: rs } = await sb.from("reservations").select("id,guest,amount,property_code").eq("airbnb_code", code);
@@ -475,8 +498,9 @@ async function aplicarMail(code: string) {
   const patch: Record<string, unknown> = {};
   if (am.guest && (!r.guest || r.guest.startsWith("Airbnb HM"))) patch.guest = am.guest;
   if (am.amount && !r.amount && rs.length === 1) patch.amount = am.amount; // lock-off (2 depas): el monto lo reparte María
-  if (!Object.keys(patch).length) continue;
+  if (!Object.keys(patch).length) { await syncIngresoSrv(r.id); continue; }
   await sb.from("reservations").update(patch).eq("id", r.id);
+  await syncIngresoSrv(r.id); // el monto del correo también genera el ingreso (antes solo lo hacía el formulario)
   await sb.from("sync_log").insert({ property_code: r.property_code, action: "correo", detail: `Del correo de Airbnb: ${patch.guest ?? r.guest}${patch.amount ? " · $" + Number(patch.amount).toLocaleString("es-MX") : ""} (${code})`, reservation_id: r.id, seen: true });
   ok = true;
   }
@@ -508,6 +532,11 @@ Deno.serve(async (req: Request) => {
       if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });
       if (!activa("correos")) return Response.json({ pausado: true });
       return Response.json(await ingestAirbnb(await req.json()));
+    }
+    if (url.searchParams.get("backfill") === "ingresos") {
+      const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
+      if (!KEY || req.headers.get("x-mgm-key") !== KEY) return Response.json({ error: "no autorizado" }, { status: 401 });
+      return Response.json(await rellenarIngresos());
     }
     if (url.searchParams.get("file") === "1") {
       const KEY = Deno.env.get("BACKUP_DRIVE_KEY") ?? "";
