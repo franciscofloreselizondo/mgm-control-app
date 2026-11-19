@@ -444,9 +444,17 @@ function parseMail(m: { subject: string; body: string }) {
   const kind = /cancelad|cancel(l)?ed/i.test(m.subject) ? "baja" : /confirmad|confirmed|nueva reserv|new booking|instant/i.test(m.subject) ? "alta"
     : /modific|changed|altered|actualiz/i.test(m.subject) ? "cambio" : "otro";
   const g = m.subject.match(/[:\-–]\s*(.+?)\s+(llega|arrives|ha cancelado|canceled|cancelled|reserv)/i);
-  const num = (re: RegExp) => { const x = m.body.match(re); return x ? Number(x[1].replace(/[,\s]/g, "")) : null; };
-  const amount = num(/(?:T[uú] ganas|Ganas|You earn|Your payout|Pago al anfitri[oó]n)[^$\d]{0,40}\$\s?([\d,]+(?:\.\d{1,2})?)/i);
-  return { code, kind, guest: g ? g[1].trim().slice(0, 80) : null, amount: amount && amount > 0 ? amount : null };
+  // Lo que gana el anfitrión: el monto que sigue a "Ganas" / "Tú ganas" / "You earn". Formatos: "$1,212.15" o "2465,23 $".
+  const lab = m.body.search(/(?:^|\n)\s*Ganas\b|T[uú] ganas|You earn/i);
+  let amount: number | null = null;
+  if (lab >= 0) {
+    const x = m.body.slice(lab, lab + 120).match(/\$\s?(-?[\d.,]+\d)|(-?[\d.,]+\d)\s?\$/);
+    const raw = x ? (x[1] || x[2]) : "";
+    if (raw) amount = Number(/,\d{2}$/.test(raw) ? raw.replace(/\./g, "").replace(",", ".") : raw.replace(/,/g, ""));
+  }
+  const cur = (m.body.match(/Total \((MXN|USD|EUR)\)/i) || [])[1]?.toUpperCase() || null;
+  if (cur && cur !== "MXN") amount = null; // solo pesos: un anuncio cobrado en dólares no se mezcla en el P&L
+  return { code, kind, guest: g ? g[1].trim().slice(0, 80) : null, amount: amount && amount > 0 ? amount : null, cur };
 }
 async function ingestAirbnb(body: { mails?: { id: string; subject: string; body: string; date: string }[] }) {
   const out = { recibidos: 0, con_codigo: 0, aplicados: 0 };

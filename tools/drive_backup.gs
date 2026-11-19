@@ -26,6 +26,12 @@ function cadaHora() {
   if (HORAS.indexOf(h) >= 0) subirRespaldo();
   if (h === 23) copiarFotos();
 }
+// Volver a leer los correos de Airbnb de los últimos N días (después de mejorar el lector).
+function reprocesar(dias) {
+  const label = GmailApp.getUserLabelByName('MGM-airbnb'); if (!label) return;
+  GmailApp.search('from:(airbnb.com) label:MGM-airbnb newer_than:' + (dias || 3) + 'd', 0, 100).forEach(th => th.removeLabel(label));
+  correosAirbnb();
+}
 // Correos de Airbnb cada 30 min (trigger propio). Ejecutar una vez para crearlo.
 function instalarCorreos() {
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'correosAirbnb').forEach(t => ScriptApp.deleteTrigger(t));
