@@ -26,6 +26,7 @@
   if (/[?&]reset=1/.test(location.search)) { limpiar(); return; }
   function rescate(motivo) {
     if (ok || document.getElementById('rescate')) return;
+    try { localStorage.setItem('mgm_rescate', String(motivo || '').slice(0, 150)); } catch (e) {} /* se reporta a PostHog en la siguiente carga buena */
     var d = document.createElement('div'); d.id = 'rescate';
     d.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#23272a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px;text-align:center;font:16px -apple-system,Helvetica,Arial,sans-serif';
     d.innerHTML = '<div style="font-size:20px;font-weight:700">La app no terminó de cargar</div><div style="opacity:.8;max-width:320px">Suele pasar en iPhone cuando se queda guardada una versión vieja o la red falla. Toca el botón para limpiar y volver a cargar (no se pierde ningún dato).</div><button style="font-size:17px;padding:14px 22px;border-radius:12px;border:0;background:#2f4f43;color:#fff;font-weight:700">Recargar app</button><div style="opacity:.5;font-size:12px">' + (motivo || '') + '</div>';
@@ -67,6 +68,7 @@
   <script src="vendor/supabase-2.119.0.js"></script>
   <script src="config.js?v=54"></script>
   <script src="mgmx.js?v=54"></script>
+  <script src="analytics.js?v=54"></script>
   <script src="app.js?v=54"></script>
 </body>
 </html>

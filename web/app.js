@@ -149,7 +149,8 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = fals
 
 // ---------- escritura (optimista) ----------
 const hit = (r, match) => Object.keys(match).every(k => r[k] === match[k]);
-async function done(p, t, okMsg) { const err = await p; if (err) { toast('No se guardó: ' + err); reload(t); return false; } if (okMsg) toast(okMsg); return true; }
+const AN = window.MGM_AN || { iniciar() {}, evento() {}, error() {} };
+async function done(p, t, okMsg, op) { const err = await p; if (err) { AN.evento('guardado_fallido', { tabla: t, op, error: String(err).slice(0, 150) }); toast('No se guardó: ' + err); reload(t); return false; } AN.evento('dato_guardado', { tabla: t, op }); if (okMsg) toast(okMsg); return true; }
 // Deshacer: cada cambio guarda su inverso; los cambios de una misma acción (< 1.5 s) se agrupan
 const UNDO = []; let undoing = false, undoT = 0;
 const keyOf = r => r.id != null ? { id: r.id } : r.key != null ? { key: r.key } : r.code != null ? { code: r.code } : null;
@@ -165,16 +166,16 @@ async function deshacer() {
   finally { undoing = false; }
   toast('Deshecho: ' + u.label);
 }
-function ins(t, row, msg) { const k = keyOf(row); pushUndo(t, [k ? { a: 'del', t, m: k } : { a: 'del', t, m: { ...row } }], msg); S.t[t].push(row); render(); return done(DB.insert(t, row), t, msg); }
+function ins(t, row, msg) { const k = keyOf(row); pushUndo(t, [k ? { a: 'del', t, m: k } : { a: 'del', t, m: { ...row } }], msg); S.t[t].push(row); render(); return done(DB.insert(t, row), t, msg, 'alta'); }
 function upd(t, match, patch, msg) {
   const ops = []; S.t[t].forEach(r => { if (hit(r, match)) { ops.push({ a: 'upd', t, m: keyOf(r) || match, p: Object.fromEntries(Object.keys(patch).map(k => [k, r[k] === undefined ? null : r[k]])) }); Object.assign(r, patch); } });
-  pushUndo(t, ops, msg); render(); return done(DB.update(t, match, patch), t, msg);
+  pushUndo(t, ops, msg); render(); return done(DB.update(t, match, patch), t, msg, 'cambio');
 }
-function del(t, match, msg) { pushUndo(t, S.t[t].filter(r => hit(r, match)).map(r => ({ a: 'ins', t, row: JSON.parse(JSON.stringify(r)) })), msg); S.t[t] = S.t[t].filter(r => !hit(r, match)); render(); return done(DB.remove(t, match), t, msg); }
+function del(t, match, msg) { pushUndo(t, S.t[t].filter(r => hit(r, match)).map(r => ({ a: 'ins', t, row: JSON.parse(JSON.stringify(r)) })), msg); S.t[t] = S.t[t].filter(r => !hit(r, match)); render(); return done(DB.remove(t, match), t, msg, 'borrado'); }
 function ups(t, row, pk, msg) {
   const i = S.t[t].findIndex(r => pk.every(k => r[k] === row[k])), m = Object.fromEntries(pk.map(k => [k, row[k]]));
   pushUndo(t, [i >= 0 ? { a: 'upd', t, m, p: Object.fromEntries(Object.keys(row).map(k => [k, S.t[t][i][k] === undefined ? null : S.t[t][i][k]])) } : { a: 'del', t, m }], msg);
-  if (i >= 0) Object.assign(S.t[t][i], row); else S.t[t].push(row); render(); return done(DB.upsert(t, row, pk), t, msg);
+  if (i >= 0) Object.assign(S.t[t][i], row); else S.t[t].push(row); render(); return done(DB.upsert(t, row, pk), t, msg, 'alta_o_cambio');
 }
 async function reload(t) { const r = await DB.load(t); if (r.rows) { S.t[t] = r.rows; S.falta?.delete(t); render(); } }
 
@@ -209,13 +210,15 @@ $('btnGoogle').addEventListener('click', async () => { const err = await DB.goog
 async function boot(email) {
   S.email = email; $('login').hidden = true; $('shell').hidden = false; window.__mgmOK && window.__mgmOK();
   $('view').innerHTML = '<div class="empty">Cargando…</div>';
-  const lento = setTimeout(() => { if ($('view').textContent.trim() === 'Cargando…') $('view').innerHTML = '<div class="card" style="text-align:center"><b>Está tardando en cargar</b><div class="m" style="margin:8px 0 12px">Puede ser la señal o una versión vieja guardada en el teléfono.</div><div class="row" style="gap:8px;justify-content:center"><button onclick="location.reload()">Reintentar</button><button class="pri" onclick="window.__mgmLimpiar && window.__mgmLimpiar()">Limpiar y recargar</button></div></div>'; }, 15000);
+  const lento = setTimeout(() => { if ($('view').textContent.trim() === 'Cargando…') $('view').innerHTML = '<div class="card" style="text-align:center"><b>Está tardando en cargar</b><div class="m" style="margin:8px 0 12px">Puede ser la señal o una versión vieja guardada en el teléfono.</div><div class="row" style="gap:8px;justify-content:center"><button onclick="location.reload()">Reintentar</button><button class="pri" onclick="window.__mgmLimpiar && window.__mgmLimpiar()">Limpiar y recargar</button></div></div>'; AN.evento('carga_lenta'); }, 15000);
   const res = await Promise.all(TABLES.map(t => DB.load(t)));
   clearTimeout(lento);
   S.falta = new Set(); TABLES.forEach((t, i) => { S.t[t] = res[i].rows || []; if (!res[i].rows) S.falta.add(t); });
   S.me = S.t.app_users.find(u => (u.email || '').toLowerCase() === email.toLowerCase()) || null;
   if (S.me && DB.touch) DB.touch();
   render();
+  AN.iniciar({ version: APP_VER, email, rol: S.me && S.me.role, name: S.me && S.me.name });
+  AN.evento('app_cargada', { ms: Math.round(performance.now()), tablas_sin_cargar: S.falta.size });
   const timers = {};
   DB.subscribe(t => { clearTimeout(timers[t]); timers[t] = setTimeout(() => reload(t), 400); }, ok => { S.live = ok; renderLive(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) return; if (S.tab === 'calendario') { S.calMes = today().slice(0, 7); S.calScroll = true; render(); } if (!CFG.DEMO) TABLES.forEach(reload); });
@@ -257,7 +260,7 @@ function setupTabbar() {
 function allowed(tab) { const acc = ACCESS[S.me.role] || ACCESS.superadmin; return tab === 'perfil' || !acc.bar || acc.bar.some(b => b[0] === tab) || tab === acc.home; }
 const TITLES = { perfil: 'Mi perfil', reservas: 'Reservas', cajones: 'Cajones Qalina', hoy: 'Hoy', calendario: 'Calendario', nomina: 'Nómina', menu: 'Menú', ...Object.fromEntries(MENU.map(m => [m[0], m[1]])) };
 const VIEWS = {};
-function go(tab) { S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; if (tab === 'servicios') { S.servScroll = true; const pm = mesAnt(); if (S.f.serv) { S.f.serv.y = pm.slice(0, 4); S.f.serv.m = pm.slice(5); } } render(); }
+function go(tab) { if (tab !== S.tab) AN.evento('pestana_vista', { pestana: tab }); S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; if (tab === 'servicios') { S.servScroll = true; const pm = mesAnt(); if (S.f.serv) { S.f.serv.y = pm.slice(0, 4); S.f.serv.m = pm.slice(5); } } render(); }
 // Congela los controles de arriba (botones, filtros, navegación) de cada pestaña
 function fijarCabecera() {
   const v = $('view'); if (!v || v.querySelector('.calhead')) return;
@@ -388,7 +391,7 @@ $('sheet').addEventListener('click', async e => {
   if (d.wapl) { S.waTit = $('waTit').value; S.waPie = $('waPie').value; S.waSel.has(d.wapl) ? S.waSel.delete(d.wapl) : S.waSel.add(d.wapl); return sheetWA(); }
   if (d.wa) { S.waTit = $('waTit').value; S.waPie = $('waPie').value; const L = clavesConCodigo().map(x => x.pl); S.waSel = new Set(d.wa === 'todos' ? L : d.wa === 'qalina' ? L.filter(x => x === 'Bodega Qalina' || (prop(x) || {}).building === 'Qalina') : []); return sheetWA(); }
   if (d.wagen) { S.waTit = $('waTit').value.trim() || 'CONTRASEÑAS DEPARTAMENTOS'; S.waPie = $('waPie').value.trim(); return crearImagenWA(); }
-  if (d.washare) return compartirWA();
+  if (d.washare) { AN.evento('compartir_whatsapp'); return compartirWA(); }
   if (d.wadl) return saveFile(S.waBlob, 'claves.png');
 });
 $('viewer').addEventListener('click', () => { $('viewer').hidden = true; });
@@ -1339,9 +1342,9 @@ $('view').addEventListener('click', async e => {
   if (d.copynom) { try { await navigator.clipboard.writeText(textoNomina(d.copynom, S.semana)); toast('Copiado: nómina de ' + nombre(d.copynom)); } catch (_) { toast('No se pudo copiar'); } return; }
   if (d.copyurl) { try { await navigator.clipboard.writeText(prop(d.copyurl).airbnb_url); toast('Liga copiada'); } catch (_) { toast('No se pudo copiar'); } return; }
   if (d.del) { if (!confirmTap(el)) return; const [t, id] = d.del.split('|'); return del(t, { id }, 'Quitado'); }
-  if (d.export) return exportFin(d.export);
-  if (d.expcal) return exportCal();
-  if (d.expbackup) return exportBackup();
+  if (d.export) { AN.evento('exportar', { tipo: 'finanzas_' + d.export }); return exportFin(d.export); }
+  if (d.expcal) { AN.evento('exportar', { tipo: 'calendario' }); return exportCal(); }
+  if (d.expbackup) { AN.evento('exportar', { tipo: 'respaldo' }); return exportBackup(); }
   if (d.addoff) { const date = $('offDate').value, k = $('offK').value; if (!date || !k) return; return ups('days_off', { date, cleaner_key: k }, ['date', 'cleaner_key'], 'Descanso agregado'); }
   if (d.deloff) { const [date, k] = d.deloff.split('|'); return del('days_off', { date, cleaner_key: k }); }
   if (d.togcleaner) { const c = S.t.cleaners.find(x => x.key === d.togcleaner); return upd('cleaners', { key: c.key }, { active: c.active === false }); }
