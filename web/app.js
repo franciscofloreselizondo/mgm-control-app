@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '55';
+const APP_VER = '56';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -77,6 +77,7 @@ function supaDB() {
     async touch() { try { await sb.rpc('touch_me'); } catch (_) {} },
     async photoUrl(path) { const r = await sb.storage.from('comprobantes').createSignedUrl(path, 3600); return r.data ? r.data.signedUrl : ''; },
     subscribe(onChange, onState) {
+      sb.getChannels().filter(c => c.topic === 'realtime:mgm').forEach(c => sb.removeChannel(c)); // por si se vuelve a entrar sin recargar
       const ch = sb.channel('mgm');
       TABLES.forEach(t => ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => onChange(t)));
       ch.subscribe(s => onState(s === 'SUBSCRIBED'));
@@ -184,7 +185,7 @@ async function start() {
   if (!CFG.DEMO && !CFG.SUPABASE_URL) { document.body.innerHTML = '<p style="padding:24px">Falta config.js con SUPABASE_URL y SUPABASE_ANON_KEY.</p>'; return; }
   DB.onAuth(email => { if (email && !S.email) boot(email); if (!email && S.email) showLogin(); });
   const email = await DB.session();
-  email ? boot(email) : showLogin();
+  if (!email) showLogin(); else if (!S.email) boot(email); // onAuth puede haber arrancado ya: no arrancar dos veces
   if (!CFG.DEMO && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   if (!CFG.DEMO) { // actualización automática: al volver a la app revisa si hay versión nueva y recarga
     const chk = async () => { try { const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); const v = (await r.json()).v;
