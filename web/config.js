@@ -5,6 +5,6 @@ window.MGM_CONFIG = {
   DEMO: false,
   GOOGLE: true,
   // PostHog (piloto). Llave pública del proyecto (phc_...). Vacío = analytics apagado.
-  POSTHOG_KEY: '',
+  POSTHOG_KEY: 'phc_rpB9rudXBg2QZAKZqGTnyXT6muHJGBBPaf64Nz9GKkXZ',
   POSTHOG_HOST: 'https://us.i.posthog.com'
 };
