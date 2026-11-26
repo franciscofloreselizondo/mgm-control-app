@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '85';
+const APP_VER = '86';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log', 'pl_mensual', 'pl_listings', 'pl_ideas', 'precio_decisiones'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -251,6 +251,7 @@ function ligaAccion() {
     case 'servicios': case 'servpago': { ir_a('servicios'); const m = q.get('m'); if (m && S.f.serv) { S.f.serv.y = m.slice(0, 4); S.f.serv.m = m.slice(5, 7); render(); } return ir === 'servpago' && q.get('acc') ? servPayForm(q.get('acc'), m) : null; }
     case 'pendiente': { ir_a('pendientes'); const t = S.t.tasks.find(x => x.id === q.get('id')); return t ? taskForm(t.id) : falta(); }
     case 'pendientes': return ir_a('pendientes');
+    case 'mov': { ir_a('finanzas'); const t = S.t.transactions.find(x => x.id === q.get('id')); return t ? txForm(t.id) : falta(); }
     case 'admin': S.usrTab = 'auto'; return ir_a('usuarios');
     case 'pnl': return ir_a('pnl');
     case 'ocupacion': return ir_a('ocupacion');

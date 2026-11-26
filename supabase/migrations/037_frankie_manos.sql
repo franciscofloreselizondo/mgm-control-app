@@ -28,3 +28,7 @@ create table if not exists pas.wa_paco (
 alter table pas.wa_paco enable row level security;
 -- El cuerpo de las funciones (pas.timbrar_paco, pas.wa_paco_tomar, pas.wa_paco_marcar, pas.wa_paco_trg,
 -- public.frankie_pedido_nuevo, public.frankie_decidir) quedó aplicado en la base junto con esta migración.
+
+-- 26-nov, segunda parte (migración «frankie_avisa_a_maria»): la cola lleva destino ('paco' o 'maria').
+-- Cuando Claude ejecuta un pedido de María ya autorizado, le manda la noticia con la liga al registro modificado.
+alter table pas.wa_paco add column if not exists destino text not null default 'paco' check (destino in ('paco', 'maria'));
