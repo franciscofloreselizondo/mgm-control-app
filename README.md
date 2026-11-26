@@ -17,6 +17,7 @@ claves y ligas de Airbnb de los depas que administra MGM. Las reservas se captur
 | Compras | Lugar, descripción, responsable, fecha, palomita; filtros y orden. |
 | Claves | 2 claves por depa + Bodega Qalina y Caja fuerte Qalina. |
 | Ligas Airbnb | Liga por depa con botón Copiar. |
+| Cotizaciones (solo María y Paco) | Propuesta para propietarios en 5 pasos (prospecto, administración, proyección, decoración, mood board) y PDF con la identidad de MGM; estados, versiones y vigencia. La proyección usa una referencia mensual capturada, el Motor de precios MGM como contraste y, cuando haya 3+ meses con montos, los datos de la app (misma lógica que el P&L). Migración `039_cotizaciones.sql`. |
 | Supuestos | Bono de domingo, renta de cajón, cajones de Qalina, usuarios. |
 
 ## Roles

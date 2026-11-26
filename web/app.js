@@ -32,8 +32,8 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '86';
-const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
+const APP_VER = '87';
+const TABLES = ['quotes', 'properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log', 'pl_mensual', 'pl_listings', 'pl_ideas', 'precio_decisiones'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
   'Reparaciones menores', 'Pintura', 'Limpieza de muebles', 'Mantenimiento AC', 'Gas', 'Luz', 'Internet', 'Agua', 'Predial', 'Otro'];
@@ -256,6 +256,7 @@ function ligaAccion() {
     case 'pnl': return ir_a('pnl');
     case 'ocupacion': return ir_a('ocupacion');
     case 'stats': return ir_a('stats');
+    case 'cotiz': return ir_a('cotiz');
     default: return ir_a('hoy');
   }
 }
@@ -274,6 +275,7 @@ const MENU = [
   ['stats', 'Estadísticas', 'Ocupación, ingresos, gastos, tendencia de 3 meses y alertas · solo María y Paco'],
   ['pnl', 'P&L', 'Estado de resultados por fechas, torre o depa · PDF con comprobantes · solo María y Paco'],
   ['ocupacion', 'Gestión de Ocupación', 'Tú contra la zona, mapa de desgaste y prioridades de precio · solo María decide'],
+  ['cotiz', 'Cotizaciones', 'Propuestas para propietarios con PDF: administración, proyección, decoración y mood board · solo María y Paco'],
   ['usuarios', 'Admin', 'Automatizaciones · permisos · actividad · supuestos (depas, chicas, cajones, bono) · solo superadmin']
 ];
 const ROLES = { superadmin: 'Superadmin · acceso a todo', socio: 'Socio · calendario, cajones, pendientes, compras, claves y ligas', finanzas: 'Finanzas · solo gastos e ingresos' };
@@ -947,7 +949,7 @@ function pagoForm(k) { const N = nominaDe(k, S.semana); openForm({ title: 'Pago 
   save: async v => { if (!v.date) return 'Falta la fecha.'; if (!(Number(v.amount) > 0)) return 'El monto debe ser mayor a cero.'; ins('payroll_payments', { id: uid(), cleaner_key: k, week_start: S.semana, date: v.date, amount: Number(v.amount), method: v.method, note: v.note || null }, 'Pago registrado'); } }); }
 
 // ---------- MENÚ ----------
-VIEWS.menu = () => `<div class="menu">${MENU.filter(m => !['pnl', 'stats', 'servicios', 'usuarios', 'ocupacion'].includes(m[0]) || isSuper()).map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
+VIEWS.menu = () => `<div class="menu">${MENU.filter(m => !['pnl', 'stats', 'servicios', 'usuarios', 'ocupacion', 'cotiz'].includes(m[0]) || isSuper()).map(([k, t, s]) => `<button class="card tap" data-go="${k}"><div class="dp">${t}</div><div class="m">${s}</div></button>`).join('')}</div><div class="menu-foot"><img class="l" src="img/logo-white.png" alt="MGM Housing Management"><img class="s" src="img/skyline.svg" alt=""></div>`;
 
 // ---------- CAJONES QALINA ----------
 VIEWS.cajones = () => {
@@ -1637,7 +1639,7 @@ function depaForm(code) {
   const k0 = p ? (S.t.access_codes || []).find(x => x.place === p.code) || {} : {};
   const tiene = s => !!p && (S.t.service_accounts || []).some(a => a.service === s && (a.property_code === p.code || (a.split || []).some(x => x.code === p.code)));
   const values = { code: '', building: p?.building || '', cleaning: String(p ? p.cleaning !== false : true), ical_url: p?.ical_url || '', airbnb_url: p?.airbnb_url || '',
-    has_parking: String(!!p?.has_parking), parking_level: p?.parking_level ?? '', lends_parking: String(!!p?.lends_parking), code1: k0.code1 || '', code2: k0.code2 || '' };
+    has_parking: String(!!p?.has_parking), parking_level: p?.parking_level ?? '', lends_parking: String(!!p?.lends_parking), code1: k0.code1 || '', code2: k0.code2 || '', recamaras: p?.recamaras ?? '', m2: p?.m2 ?? '' };
   for (const c of ch) values['rate_' + c.key] = p ? rate(p.code, c.key) ?? '' : '';
   for (const [sv] of SERV) values['srv_' + sv] = p ? '' : 'pnl'; // depa nuevo: propone crear sus 5 cuentas de servicio (se puede cambiar a "Todavía no")
   const falta = p ? depaFalta(p) : [];
@@ -1646,6 +1648,7 @@ function depaForm(code) {
       { type: 'note', cls: p && !falta.length ? 'm' : 'm warn', html: p ? (falta.length ? '<b>Le falta:</b> ' + esc(falta.join(' · ')) + '. Llena lo que tengas; lo demás puede esperar.' : 'Ficha completa.') : 'Solo el código es obligatorio. Llena lo que tengas ahora y completa el resto después desde la ficha del depa.' },
       !p && { k: 'code', label: 'Código (como sale en el calendario, p. ej. Q-901)', type: 'text' },
       { k: 'building', label: 'Edificio (p. ej. Qalina)', type: 'text' },
+      { k: 'recamaras', label: 'Recámaras (0 = loft o estudio) · sirve para Cotizaciones', type: 'number' }, { k: 'm2', label: 'm²', type: 'number' },
       { k: 'cleaning', label: '¿La limpieza la hace MGM?', type: 'select', options: [['true', 'Sí'], ['false', 'No (no pide chica ni entra a nómina)']] },
       ...(v.cleaning === 'true' ? ch.map(c => ({ k: 'rate_' + c.key, label: 'Pago por limpieza · ' + c.name, type: 'number', ph: 'sin tarifa' })) : []),
       { k: 'ical_url', label: 'Calendario de Airbnb (liga .ics)', type: 'url', ph: 'https://www.airbnb.mx/calendar/ical/…' },
@@ -1662,7 +1665,7 @@ function depaForm(code) {
       if (!p && S.t.properties.some(x => x.code.toLowerCase() === cod.toLowerCase())) return 'Ese depa ya existe.';
       const ical = (v.ical_url || '').trim(); if (ical && !/^https:\/\/[^ ]+\.ics/i.test(ical)) return 'La liga del calendario no parece de Airbnb (.ics). Déjala vacía si aún no la tienes.';
       const row = { building: (v.building || '').trim() || null, cleaning: v.cleaning === 'true', ical_url: ical || null, airbnb_url: (v.airbnb_url || '').trim() || null,
-        has_parking: v.has_parking === 'true', parking_level: v.has_parking === 'true' && v.parking_level !== '' ? Number(v.parking_level) : null, lends_parking: v.has_parking === 'true' && v.lends_parking === 'true' };
+        has_parking: v.has_parking === 'true', parking_level: v.has_parking === 'true' && v.parking_level !== '' ? Number(v.parking_level) : null, lends_parking: v.has_parking === 'true' && v.lends_parking === 'true', recamaras: v.recamaras === '' || v.recamaras == null ? null : Number(v.recamaras), m2: v.m2 === '' || v.m2 == null ? null : Number(v.m2) };
       if (p) { const cur = k => k === 'cleaning' ? p.cleaning !== false : typeof row[k] === 'boolean' ? !!p[k] : p[k] ?? null, ch2 = Object.fromEntries(Object.entries(row).filter(([k, x]) => cur(k) !== x)); if (Object.keys(ch2).length) await upd('properties', { code: cod }, ch2, 'Ficha guardada'); }
       else await ins('properties', { code: cod, sort: Math.max(0, ...S.t.properties.map(x => x.sort ?? 0)) + 1, active: true, kind: 'depa', ...row }, cod + ' agregado');
       if (v.cleaning === 'true') for (const c of ch) { const n = v['rate_' + c.key], cur = p ? rate(cod, c.key) : null;
@@ -2069,6 +2072,281 @@ if (CFG.DEMO) {
   $('demoRole').addEventListener('change', e => { DB.setRole(e.target.value); again(); });
   $('demoEj').addEventListener('click', () => { DB.reset(true); again(); toast('Ejemplos cargados'); });
   $('demoVac').addEventListener('click', e => { if (!confirmTap(e.target)) return; DB.reset(false); again(); toast('Datos del Excel restaurados'); });
+}
+
+
+// ---------- COTIZACIONES (solo María y Paco) ----------
+// Tipo 'admin_deco': presentación y propuesta de administración, proyección financiera, propuesta de decoración (con anexo) y mood board.
+// Todos los supuestos viven en quotes.data; el PDF se arma aquí mismo con jsPDF y las fuentes de la marca (vendor/fonts).
+const CZ_ESTADOS = { borrador: ['Borrador', 'med'], enviada: ['Enviada', ''], aceptada: ['Aceptada', 'ok'], rechazada: ['Rechazada', 'mal'] };
+const CZ_TIPOS = { admin_deco: 'Administración + decoración' };
+const CZ_BENEF = [['Disponibilidad', 'Tu propiedad disponible para que puedas disfrutarla en tus visitas a Guadalajara.'], ['Cuidado constante', 'Siempre con los mantenimientos que requiere, al día.'],
+  ['Mayor ingreso', 'El beneficio del ingreso extra frente al que ofrece una renta tradicional.'], ['Plusvalía inmediata', 'Reflejada directamente en el incremento de la tarifa por noche.']];
+function czPlantilla() {
+  const L = s => s.split(';').map(x => x.trim()).filter(Boolean), it = (a, s) => L(s).map(c => ({ a, c }));
+  return {
+    cliente: '', depa: '', torre: '', recamaras: null, m2: null, fecha: today(), vigencia: 30, portada: '',
+    firma: setting('cotiz_firma', null) || { nombre: 'María Galarza', tel: '+52 331 918 4650', correo: 'mariagalarzam@gmail.com' },
+    adm: { pct: 15, base: 'Del ingreso bruto mensual', nota: 'Lo que se deposita en la plataforma Airbnb. Incluye todos los servicios siguientes.',
+      grupos: [
+        { t: 'Arranque del anuncio', items: ['Alta en Airbnb: configuración de la propiedad y reglamento, optimización del recorrido virtual fotográfico', 'Creación de manuales de limpieza y mantenimiento, libro de invitados y reglamentos'] },
+        { t: 'Finanzas y cumplimiento', items: ['Reporte de ingresos/gastos y ocupación (P&L mensual)', 'Pago de impuestos', 'Pago de servicios del departamento: agua, luz, internet, mantenimiento y gas', 'Cumplimiento legal'] },
+        { t: 'Reservas y huéspedes', items: ['Gestión de reservas en la plataforma y atención al cliente', '- Calendario, check-in y check-out', '- Atención durante la estancia: guía local, detalles de bienvenida', '- Resolución continua de problemas e incidencias', 'Optimización del anuncio y precios dinámicos mediante herramientas de IA', 'Gestión de reseñas'] },
+        { t: 'Mantenimiento e insumos', items: ['Gestión de limpiezas, mantenimientos preventivos, fumigaciones y reparaciones', 'Reabastecimiento de insumos y artículos de cortesía'] }],
+      extras: [{ t: 'Decoración de la propiedad', v: '15% sobre facturas' }, { t: 'Toma de fotografías', v: 'Pago único $2,000' }] },
+    proy: { fuente: 'departamentos similares que operamos en Torre Qalina', lectura: '',
+      meses: [['2026-01', 10330], ['2026-02', 12962], ['2026-03', 13421], ['2026-04', 12895], ['2026-05', 13892], ['2026-06', 13361], ['2026-07', 9083], ['2026-08', 9303], ['2026-09', 8392], ['2026-10', 13043]].map(([mes, v]) => ({ mes, v })) },
+    deco: { pct: 15, intro: 'Cotización de decoración y amueblado para dejar el depa listo para recibir huéspedes. Incluye compra, entrega, armado e instalación de todos los artículos.',
+      condiciones: ['Los importes pueden variar hasta ±10% según disponibilidad y precios de proveedores.', 'Importes en MXN.'],
+      areas: [
+        { n: 'General', etiqueta: 'General (equipos, instalación y fotografía)', total: null, items: [{ a: 'AC', c: 'Mini split Mirage Inverter 1.5 TR (18,000 BTU), solo frío, 220 V', m: 17700 }, { a: 'Persianas', c: '3 persianas Screen Phifer y 2 blackout, con tensores', m: 12180 }, { a: 'Instalación', c: 'Instalaciones, armado y flete', m: 15000 }, { a: 'Fotografía', c: 'Fotografía profesional', m: 2000 }, { a: 'Insumos', c: 'Insumos varios', m: 3000 }, { a: 'Internet', c: 'Instalación de internet', m: 500 }] },
+        { n: 'Cocina y lavandería', total: 28700, items: [...it('Lavandería', 'Productos de limpieza;Tendedero de ropa;Escalera plegable;Botiquín de primeros auxilios;Porta escobas'), ...it('Cocina', 'Cerrojos en puertas de cocina;Escurridor de trastes;Extintor;Refrigerador;Detector de humo y monóxido de carbono;Porta toallas;Licuadora;Vajilla;Tazas;Copas;Vasos;Batería de cocina;Cubiertos;Aceite, sal, tés, pimienta;Tóppers;Manteles;Cafetera;Sacacorchos;Abrelatas;Tetera;Microondas;Tostador;Bowls;Tabla para cortar;Cesto de basura;Exprimidor;Dispensador de jabón;Trapos de cocina')] },
+        { n: 'Comedor y sala', total: 36000, items: [...it('Comedor', 'Sillas;Mesa de comedor redonda;Cuadros decorativos;Planta artificial'), ...it('Sala', 'Love sofá;Espejos o cuadros decorativos;Mesa central;Artículos decorativos;Cojines decorativos;Cobija decorativa;Libro de invitados')] },
+        { n: 'Baño', total: 6000, items: [...it('Baño', 'Dispensador de jabón;Tapete;Toalla de manos;Dispensador de jabón de regadera;Bote de basura;Toallas (4);Repisa'), ...it('Clóset', 'Plancha;Burro de planchar;Secadora de cabello')] },
+        { n: 'Recámara', total: 71800, items: [...it('Recámara', 'Colchón y base queen size;Colcha y blancos de cama (2 juegos);Mampara de madera de pino con entrepaños y luces;Lambrín en cabecera de cama;Lámparas;Cobija decorativa;Buró;Espejo de cuerpo completo;Puertas para clóset con la misma madera del clóset original, con jaladera y 4 bisagras de cierre lento reforzadas'), ...it('Sala', 'Soporte de TV;TV 65"'), ...it('Clóset', 'Ganchos')] }] },
+    mood: { paleta: ['#9C8268', '#D3D2CD', '#A1A09B', '#706864', '#362F2A'], fotos: [], intro: 'Paleta, texturas y mobiliario que guían la decoración del depa.' }
+  };
+}
+const czQ = () => (S.t.quotes || []).find(q => q.id === S.czId);
+const czN = v => (v === '' || v == null || isNaN(Number(v)) ? null : Number(v));
+const czAreaTot = a => czN(a.total) ?? (a.items || []).reduce((n, x) => n + (Number(x.m) || 0), 0);
+function czTot(d) { const sub = (d.deco?.areas || []).reduce((n, a) => n + czAreaTot(a), 0), fee = Math.round(sub * (Number(d.deco?.pct) || 0) / 100); return { sub, fee, tot: sub + fee }; }
+function czProy(d) {
+  const M = (d.proy?.meses || []).filter(x => x.mes && Number(x.v) > 0).sort((a, b) => a.mes.localeCompare(b.mes)), n = M.length, acc = M.reduce((s, x) => s + Number(x.v), 0), avg = n ? Math.round(acc / n) : 0;
+  const vs = M.map(x => Number(x.v)), min = n ? Math.min(...vs) : 0, max = n ? Math.max(...vs) : 0, T = czTot(d);
+  return { M, n, acc, avg, min, max, payback: avg ? Math.round(T.tot / avg) : null };
+}
+const czMesN = (m, largo) => (largo ? MESES_L : MESES)[+m.slice(5) - 1];
+function czPeriodo(P) { if (!P.n) return ''; const a = P.M[0].mes, b = P.M[P.n - 1].mes; return a.slice(0, 4) === b.slice(0, 4) ? czMesN(a) + '–' + czMesN(b) + ' ' + b.slice(0, 4) : czMesN(a) + ' ' + a.slice(0, 4) + '–' + czMesN(b) + ' ' + b.slice(0, 4); }
+const czDepaCorto = d => String(d.depa || '').replace(/^(torre\s+)?qalina\s+/i, '') || 'depa';
+function czLectura(d) {
+  if ((d.proy?.lectura || '').trim()) return d.proy.lectura.trim();
+  const P = czProy(d); if (!P.n) return '';
+  const alto = P.M.filter(x => x.v >= P.avg * 1.05), bajo = P.M.filter(x => x.v <= P.avg * 0.85), nom = a => a.map(x => czMesN(x.mes, 1).toLowerCase());
+  const lista = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' y ' + a[a.length - 1] : a[0] || '';
+  let s = `Estos departamentos dejan en promedio ${money(P.avg)} netos al mes.`;
+  if (alto.length) s += ` Los meses fuertes son ${lista(nom(alto))}, todos arriba de ${money(Math.floor(Math.min(...alto.map(x => x.v)) / 100) * 100)}.`;
+  if (bajo.length) s += ` ${lista(nom(bajo)).replace(/^./, c => c.toUpperCase())} ${bajo.length > 1 ? 'son' : 'es'} temporada baja, entre ${money(Math.floor(Math.min(...bajo.map(x => x.v)) / 100) * 100)} y ${money(Math.ceil(Math.max(...bajo.map(x => x.v)) / 100) * 100)}.`;
+  return s;
+}
+function czPortada(d) { return (d.portada || '').trim() || `Preparado para ${d.cliente || 'el propietario'}. Nuestra propuesta para administrar el ${czDepaCorto(d)} en Airbnb, los ingresos netos reales de ${d.proy?.fuente || 'departamentos similares que operamos'} y la cotización detallada de decoración y amueblado.`; }
+function czFaltas(d) { const P = czProy(d), f = {};
+  f[1] = [!d.cliente && 'propietario', !d.depa && 'depa'].filter(Boolean); f[2] = [!(Number(d.adm?.pct) > 0) && 'tarifa'].filter(Boolean);
+  f[3] = [P.n < 3 && 'al menos 3 meses'].filter(Boolean); f[4] = [!czTot(d).sub && 'importes'].filter(Boolean); f[5] = [!(d.mood?.fotos || []).length && 'fotos'].filter(Boolean); return f; }
+// Motor de precios MGM: foto de la torre (reservado próximos 30 días contra la zona y tarifa base)
+function czMotor(torre) { const L = (S.t.pl_listings || []).filter(x => x.torre === torre); if (!L.length) return null;
+  const av = k => { const v = L.map(x => Number(x[k])).filter(x => !isNaN(x) && x > 0); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
+  return { n: L.length, occ: av('occ30'), occz: av('occ30z'), base: av('base'), rec: av('recomendado') }; }
+// Ingreso neto real calculado con la app (misma lógica que el P&L) para los comparables elegidos, por mes
+function czDatosApp(codes) { const out = [], hoy = today();
+  for (let i = 12; i >= 1; i--) { const ym = stMes(hoy.slice(0, 7), -i), f = ym + '-01', tx = stMes(ym, 1) + '-01', P = plCalc(f, tx, codes), con = P.deps.filter(x => x.nochesM > 0 && !x.sinMonto);
+    if (con.length) out.push({ mes: ym, v: Math.round(con.reduce((s, x) => s + x.neta, 0) / con.length), n: con.length }); }
+  return out; }
+function czSetPath(o, path, v) { const k = path.split('.'); let x = o; for (let i = 0; i < k.length - 1; i++) { const nx = /^\d+$/.test(k[i + 1]) ? [] : {}; if (x[k[i]] == null) x[k[i]] = nx; x = x[k[i]]; } x[k[k.length - 1]] = v; }
+function czGuarda(d, msg) { const q = czQ(); if (!q) return; return upd('quotes', { id: q.id }, { data: d, cliente: d.cliente || null, titulo: d.depa || null, actualizado: new Date().toISOString() }, msg || 'Guardado'); }
+const czClon = () => JSON.parse(JSON.stringify(czQ().data || {}));
+const czItemsTxt = items => (items || []).map(x => [x.a, x.c, x.m != null && x.m !== '' ? x.m : null].filter(v => v != null && v !== '').join(' | ')).join('\n');
+const czItemsParse = s => String(s || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const p = l.split('|').map(x => x.trim()); const m = p.length > 1 && /^\$?[\d,.]+$/.test(p[p.length - 1]) ? Number(p.pop().replace(/[$,]/g, '')) : null;
+  const o = p.length > 1 ? { a: p[0], c: p.slice(1).join(' | ') } : { a: '', c: p[0] }; if (m != null) o.m = m; return o; });
+function czVigencia(d) { const v = add(d.fecha || today(), Number(d.vigencia) || 30), x = parse(v); return `${x.getDate()} de ${MESES_L[x.getMonth()].toLowerCase()} de ${x.getFullYear()}`; }
+
+VIEWS.cotiz = () => {
+  if (!isSuper()) return '<div class="empty">Solo María y Paco.</div>';
+  const q = czQ(); if (S.czId && q) return czEditor(q); S.czId = null;
+  const Q = [...(S.t.quotes || [])].sort((a, b) => String(b.actualizado || b.creado).localeCompare(String(a.actualizado || a.creado)));
+  let h = `<div class="row" style="margin-bottom:10px"><button class="pri sp" data-cznew="1">＋ Nueva cotización</button></div>`;
+  if (!Q.length) return h + `<div class="card"><b>Crea tu primera cotización</b><div class="m" style="margin-top:4px">Llena los supuestos por pasos y la app arma el PDF con la identidad de MGM: administración, proyección, decoración y mood board.</div></div>`;
+  const cnt = Object.keys(CZ_ESTADOS).map(k => [k, Q.filter(x => x.estado === k).length]).filter(x => x[1]);
+  h += acResumen(Q.some(x => x.estado === 'enviada') ? 'med' : 'ok', Q.length + ' cotizaci' + (Q.length === 1 ? 'ón' : 'ones'), cnt.map(([k, n]) => n + ' ' + CZ_ESTADOS[k][0].toLowerCase() + (n === 1 ? '' : 's')).join(' · '));
+  return h + `<div class="card list">${Q.map(x => { const d = x.data || {}, T = czTot(d), [et, c] = CZ_ESTADOS[x.estado] || ['', ''], vence = x.estado === 'enviada' && add(d.fecha || today(), Number(d.vigencia) || 30) < today();
+    return `<button class="it tap" data-czopen="${x.id}" style="width:100%;text-align:left"><div class="sp"><div><b>${esc(d.depa || 'Sin depa')}</b> · ${esc(d.cliente || 'Sin propietario')}</div><div class="m">${esc(CZ_TIPOS[x.tipo] || x.tipo)} · v${x.version} · ${fmt(d.fecha)} · ${money(T.tot)}</div></div>${acPill(et.toUpperCase(), c)}${vence ? acPill('VENCIDA', 'mal') : ''}</button>`; }).join('')}</div>`;
+};
+function czEditor(q) {
+  const d = q.data || {}, T = czTot(d), P = czProy(d), F = czFaltas(d), ok = n => !F[n].length, pill = n => ok(n) ? acPill('COMPLETO', 'ok') : acPill('FALTA ' + F[n].join(', ').toUpperCase(), n === 5 || n === 3 ? 'med' : 'mal');
+  const fi = (path, label, v, o = {}) => `<label class="fl"><span>${esc(label)}</span>${o.area ? `<textarea data-czf="${path}" data-czt="${o.t || ''}" rows="${o.rows || 3}" placeholder="${esc(o.ph || '')}">${esc(v ?? '')}</textarea>` : `<input data-czf="${path}" data-czt="${o.t || ''}" type="${o.type || 'text'}" ${o.t === 'n' ? 'inputmode="decimal"' : ''} value="${esc(v ?? '')}" placeholder="${esc(o.ph || '')}">`}</label>`;
+  const torres = [...new Set(props().map(p => p.building).filter(Boolean))].sort();
+  let h = `<div class="row" style="gap:6px;margin-bottom:8px"><button data-czback="1">‹ Cotizaciones</button><span class="sp"></span><select data-czestado="1">${Object.entries(CZ_ESTADOS).map(([k, [t]]) => `<option value="${k}" ${q.estado === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`;
+  h += `<div class="card"><b style="font-size:17px">${esc(d.depa || 'Depa sin nombre')} · ${esc(d.cliente || 'Sin propietario')}</b><div class="m">${esc(CZ_TIPOS[q.tipo] || '')} · versión ${q.version} · vigente hasta el ${czVigencia(d)}</div></div>`;
+  const k = (v, l, go) => `<button class="kpi" data-actog="${go}" data-acir="1"><div class="v">${v}</div><div class="l">${l}</div></button>`;
+  h += `<div class="kpis" style="grid-template-columns:repeat(2,1fr);margin-top:8px">${k(money(T.tot), 'Inversión total', 'cz:4')}${k(P.avg ? money(P.avg) : '—', 'Neto mensual de referencia', 'cz:3')}</div>`;
+  if (P.payback) h += `<div class="m" style="margin:2px 2px 8px">Con ese neto, el propietario recupera la inversión en ${P.payback} meses.</div>`;
+  if (S.czPdf && S.czPdf.id === q.id) h += `<div class="card" style="border-left:4px solid var(--acc)"><b>PDF listo</b><div class="m" style="margin:2px 0 10px">${esc(S.czPdf.name)}</div><div class="row"><button class="pri sp" data-czshare="1">Enviar por WhatsApp / compartir</button><button data-czdl="1">Descargar</button><button data-czpdfx="1">✕</button></div></div>`;
+  else h += `<div class="row" style="gap:6px;margin:6px 0 10px"><button class="pri sp" data-czpdf="1">Generar PDF</button><button data-czdup="1">Duplicar</button></div>`;
+  h += '<div class="card aclist">';
+  h += acRow('cz:1', { tit: '1 · Prospecto y depa', sub: [d.cliente, d.depa].filter(Boolean).join(' · '), pills: pill(1), body: () =>
+    fi('cliente', 'Propietario', d.cliente) + fi('depa', 'Depa (como aparecerá en el PDF)', d.depa, { ph: 'Qalina 1101' }) +
+    `<label class="fl"><span>Torre</span><select data-czf="torre"><option value="">—</option>${[...new Set([...torres, d.torre].filter(Boolean))].map(t => `<option ${d.torre === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>` +
+    `<div class="row" style="gap:8px">${fi('recamaras', 'Recámaras', d.recamaras, { t: 'n' })}${fi('m2', 'm²', d.m2, { t: 'n' })}</div>` +
+    `<div class="row" style="gap:8px">${fi('fecha', 'Fecha', d.fecha, { type: 'date' })}${fi('vigencia', 'Vigencia (días)', d.vigencia, { t: 'n' })}</div>` +
+    fi('portada', 'Texto de portada (vacío = automático)', d.portada, { area: 1, rows: 3, ph: czPortada({ ...d, portada: '' }) }) });
+  h += acRow('cz:2', { tit: '2 · Administración', sub: (d.adm?.pct ?? '—') + '% · ' + (d.adm?.grupos || []).reduce((n, g) => n + g.items.filter(x => !x.startsWith('-')).length, 0) + ' servicios', pills: pill(2), body: () =>
+    `<div class="row" style="gap:8px">${fi('adm.pct', 'Tarifa (%)', d.adm?.pct, { t: 'n' })}${fi('adm.base', 'Base de cálculo', d.adm?.base)}</div>` + fi('adm.nota', 'Nota de la tarifa', d.adm?.nota) +
+    `<div class="m" style="margin-top:12px">Un servicio por renglón. Empieza con "-" para un sub-punto.</div>` +
+    (d.adm?.grupos || []).map((g, i) => `<div class="card" style="margin-top:8px">${fi(`adm.grupos.${i}.t`, 'Grupo', g.t)}${fi(`adm.grupos.${i}.items`, 'Servicios', g.items.join('\n'), { area: 1, rows: Math.max(3, g.items.length + 1), t: 'lines' })}<button class="lnk" data-czrm="adm.grupos|${i}">Quitar grupo</button></div>`).join('') +
+    `<button style="margin-top:8px" data-czadd="adm.grupos">＋ Grupo</button><div class="m" style="margin-top:12px"><b>Servicios extra</b></div>` +
+    (d.adm?.extras || []).map((x, i) => `<div class="row" style="gap:8px">${fi(`adm.extras.${i}.t`, 'Servicio', x.t)}${fi(`adm.extras.${i}.v`, 'Precio', x.v)}<button class="lnk" data-czrm="adm.extras|${i}" aria-label="Quitar">✕</button></div>`).join('') + `<button style="margin-top:8px" data-czadd="adm.extras">＋ Servicio extra</button>` });
+  const mot = czMotor(d.torre);
+  h += acRow('cz:3', { tit: '3 · Proyección financiera', sub: P.n ? `${P.n} meses · promedio ${money(P.avg)}` : 'Sin meses', pills: pill(3), body: () => {
+    let b = fi('proy.fuente', 'De dónde salen los ingresos (frase del PDF)', d.proy?.fuente);
+    if (mot) b += `<div class="card" style="margin-top:10px"><b>Motor de precios MGM · ${esc(d.torre)}</b><div class="m" style="margin-top:4px">${mot.n} depas · reservado próximos 30 días ${mot.occ ?? '—'}% contra ${mot.occz ?? '—'}% de la zona · tarifa base promedio ${mot.base ? money(mot.base) : '—'}${mot.rec ? ' · recomendada ' + money(mot.rec) : ''}</div></div>`;
+    const cods = props().filter(p => p.building === d.torre && (!d.recamaras || !p.recamaras || +p.recamaras === +d.recamaras)).map(p => p.code), app = d.torre ? czDatosApp(cods) : [];
+    b += `<div class="card" style="margin-top:10px"><b>Ingreso neto con datos de la app</b><div class="m" style="margin-top:4px">${!d.torre ? 'Elige la torre en el paso 1.' : app.length >= 3 ? `${app.length} meses con montos en ${cods.length} depas de ${esc(d.torre)} (misma lógica que el P&L).` : `La app tiene montos de reservas en ${app.length} ${app.length === 1 ? 'mes' : 'meses'}; con 3 o más se podrá calcular sola. Mientras, usa la referencia de abajo.`}</div>${app.length >= 3 ? `<button style="margin-top:8px" data-czapp="1">Usar estos ${app.length} meses</button>` : ''}</div>`;
+    b += `<div class="m" style="margin-top:12px"><b>Neto mensual de referencia</b> · después de comisión, impuestos, mantenimiento y servicios</div>`;
+    b += (d.proy?.meses || []).map((x, i) => `<div class="row" style="gap:8px;align-items:end">${fi(`proy.meses.${i}.mes`, 'Mes', x.mes, { type: 'month' })}${fi(`proy.meses.${i}.v`, 'Neto', x.v, { t: 'n' })}<button class="lnk" data-czrm="proy.meses|${i}" aria-label="Quitar">✕</button></div>`).join('');
+    b += `<button style="margin-top:8px" data-czadd="proy.meses">＋ Mes</button>`;
+    return b + fi('proy.lectura', 'Lectura (vacío = automática)', d.proy?.lectura, { area: 1, rows: 4, ph: czLectura({ ...d, proy: { ...d.proy, lectura: '' } }) }); } });
+  h += acRow('cz:4', { tit: '4 · Decoración', sub: `${(d.deco?.areas || []).length} áreas · ${money(T.sub)} + ${d.deco?.pct ?? 0}%`, pills: pill(4), body: () =>
+    fi('deco.pct', 'Honorarios MGM (%)', d.deco?.pct, { t: 'n' }) + fi('deco.intro', 'Texto de la sección', d.deco?.intro, { area: 1, rows: 3 }) +
+    `<div class="m" style="margin-top:12px">Un artículo por renglón: <b>Área | Concepto</b>. Si quieres que se vea su importe en el PDF agrega <b>| monto</b> al final. Si dejas vacío el total del área, se suma solo.</div>` +
+    (d.deco?.areas || []).map((a, i) => `<div class="card" style="margin-top:8px"><div class="row" style="gap:8px">${fi(`deco.areas.${i}.n`, 'Área', a.n)}${fi(`deco.areas.${i}.total`, 'Total del área', a.total, { t: 'n', ph: money(czAreaTot({ ...a, total: null })) })}</div>${fi(`deco.areas.${i}.items`, `Artículos (${(a.items || []).length})`, czItemsTxt(a.items), { area: 1, rows: Math.min(12, (a.items || []).length + 2), t: 'items' })}<button class="lnk" data-czrm="deco.areas|${i}">Quitar área</button></div>`).join('') +
+    `<button style="margin-top:8px" data-czadd="deco.areas">＋ Área</button>` + fi('deco.condiciones', 'Condiciones (una por renglón; la vigencia se agrega sola)', (d.deco?.condiciones || []).join('\n'), { area: 1, rows: 3, t: 'lines' }) +
+    `<div class="m" style="margin-top:10px">Subtotal ${money(T.sub)} · honorarios ${money(T.fee)} · <b>gran total ${money(T.tot)}</b></div>` });
+  h += acRow('cz:5', { tit: '5 · Mood board', sub: (d.mood?.fotos || []).length + ' fotos', pills: pill(5), body: () =>
+    fi('mood.intro', 'Texto', d.mood?.intro) + `<div class="fl"><span>Paleta</span><div class="row" style="gap:8px">${(d.mood?.paleta || []).map((c, i) => `<input type="color" data-czf="mood.paleta.${i}" value="${esc(c)}" style="width:44px;height:44px;padding:2px">`).join('')}</div></div>` +
+    `<div class="fl"><span>Fotos (hasta 9; se acomodan en 3 × 3 en el orden en que las subas)</span><div class="photos">${(d.mood?.fotos || []).map((p, i) => `<span class="ph"><img data-czph="${esc(p)}" alt=""><button type="button" data-czrmfoto="${i}">×</button></span>`).join('')}${(d.mood?.fotos || []).length < 9 ? `<label class="addph">＋<input type="file" accept="image/*" multiple hidden data-czfotos="1"></label>` : ''}</div></div>` });
+  h += '</div>';
+  return h + `<div class="row" style="margin-top:14px"><span class="sp"></span><button class="lnk" data-czdel="1">Borrar cotización</button></div>`;
+}
+// Fotos del mood board: se piden firmadas al abrir el renglón
+const CZ_URL = {};
+new MutationObserver(() => document.querySelectorAll('#view img[data-czph]:not([src])').forEach(async im => { const p = im.dataset.czph; im.src = CZ_URL[p] || (CZ_URL[p] = await DB.photoUrl(p)); })).observe($('view'), { childList: true, subtree: true });
+$('view').addEventListener('change', async e => {
+  const t = e.target, d = t.dataset; if (!S.czId || !czQ()) return;
+  if (d.czestado) return upd('quotes', { id: S.czId }, { estado: t.value, actualizado: new Date().toISOString() }, 'Estado: ' + CZ_ESTADOS[t.value][0]);
+  if (d.czfotos) { const D = czClon(); D.mood = D.mood || {}; D.mood.fotos = D.mood.fotos || []; toast('Subiendo fotos…');
+    for (const f of [...t.files].slice(0, 9 - D.mood.fotos.length)) { try { D.mood.fotos.push(await DB.upload(await shrink(f))); } catch (err) { toast('No se pudo subir: ' + err.message); } }
+    return czGuarda(D, 'Fotos agregadas'); }
+  if (d.czf) { const D = czClon(); let v = t.value; if (d.czt === 'n') v = czN(v); else if (d.czt === 'lines') v = v.split('\n').map(x => x.trim()).filter(Boolean); else if (d.czt === 'items') v = czItemsParse(v);
+    czSetPath(D, d.czf, v); S.czPdf = null; return czGuarda(D); }
+});
+$('view').addEventListener('click', async e => {
+  const el = e.target.closest('button,[data-czopen]'); if (!el) return; const d = el.dataset;
+  if (d.cznew) { const id = uid(); S.czId = id; S.czPdf = null; ['cz:1'].forEach(k => acTog(k, true)); return ins('quotes', { id, tipo: 'admin_deco', estado: 'borrador', version: 1, data: czPlantilla(), creado: new Date().toISOString(), actualizado: new Date().toISOString(), por: S.email }, 'Cotización creada'); }
+  if (d.czopen) { S.czId = d.czopen; S.czPdf = null; render(); return scrollTo(0, 0); }
+  if (d.czback) { S.czId = null; S.czPdf = null; return render(); }
+  if (!S.czId || !czQ()) return; const q = czQ();
+  if (d.czdup) { const id = uid(), v = Math.max(...S.t.quotes.filter(x => (x.data?.depa || '') === (q.data?.depa || '') && x.cliente === q.cliente).map(x => x.version || 1)) + 1, D = czClon(); D.fecha = today(); S.czId = id; S.czPdf = null;
+    return ins('quotes', { id, tipo: q.tipo, estado: 'borrador', version: v, data: D, titulo: q.titulo, cliente: q.cliente, creado: new Date().toISOString(), actualizado: new Date().toISOString(), por: S.email }, 'Versión ' + v + ' creada'); }
+  if (d.czdel) { if (!confirmTap(el)) return; const id = S.czId; S.czId = null; return del('quotes', { id }, 'Cotización borrada'); }
+  if (d.czadd) { const D = czClon(), nuevo = { 'adm.grupos': { t: 'Nuevo grupo', items: [] }, 'adm.extras': { t: '', v: '' }, 'proy.meses': { mes: '', v: null }, 'deco.areas': { n: 'Nueva área', total: null, items: [] } }[d.czadd];
+    const k = d.czadd.split('.'); D[k[0]] = D[k[0]] || {}; (D[k[0]][k[1]] = D[k[0]][k[1]] || []).push(nuevo);
+    if (d.czadd === 'proy.meses') { const L = D.proy.meses, prev = L[L.length - 2]; if (prev?.mes) nuevo.mes = stMes(prev.mes, 1); } return czGuarda(D, 'Agregado'); }
+  if (d.czrm) { const [p, i] = d.czrm.split('|'), [a, b] = p.split('.'), D = czClon(); D[a][b].splice(+i, 1); return czGuarda(D, 'Quitado'); }
+  if (d.czrmfoto !== undefined) { const D = czClon(); D.mood.fotos.splice(+d.czrmfoto, 1); return czGuarda(D, 'Foto quitada'); }
+  if (d.czapp) { const D = czClon(), cods = props().filter(p => p.building === D.torre && (!D.recamaras || !p.recamaras || +p.recamaras === +D.recamaras)).map(p => p.code); D.proy.meses = czDatosApp(cods).map(({ mes, v }) => ({ mes, v })); D.proy.fuente = `departamentos similares que operamos en ${D.torre}`; return czGuarda(D, 'Meses tomados de la app'); }
+  if (d.czpdf) { el.textContent = 'Armando el PDF…'; el.disabled = true; try { await czPdf(q); } catch (err) { toast('No se pudo armar el PDF'); window.MGM_AN?.error?.(err, { donde: 'czPdf' }); console.error('czPdf', err && err.stack || err); } return render(); }
+  if (d.czpdfx) { S.czPdf = null; return render(); }
+  if (d.czdl && S.czPdf) return saveFile(S.czPdf.blob, S.czPdf.name);
+  if (d.czshare && S.czPdf) { const f = new File([S.czPdf.blob], S.czPdf.name, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: S.czPdf.name }).catch(() => {});
+    toast('Este navegador no deja compartir archivos; se descarga para que lo adjuntes'); return saveFile(S.czPdf.blob, S.czPdf.name); }
+});
+
+// ---------- PDF de la cotización ----------
+const CZ_FONTS = {};
+async function czB64(url) { const r = await fetch(url); if (!r.ok) throw new Error('No se pudo bajar ' + url); const b = await r.blob(); return new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); }); }
+async function czImg(url, w, h) { // recorta tipo "cover" a la proporción w:h y regresa JPEG
+  const src = await czB64(url), im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
+  const r = w / h, ir = im.width / im.height, sw = ir > r ? im.height * r : im.width, sh = ir > r ? im.height : im.width / r, c = document.createElement('canvas'), px = 900;
+  c.width = px; c.height = Math.round(px / r); c.getContext('2d').drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.85); }
+async function czPdf(q) {
+  await stCargaPdf(); const d = q.data || {}, T = czTot(d), P = czProy(d);
+  for (const [n, f] of [['OutfitL', 'Outfit-Light'], ['Outfit', 'Outfit-Regular'], ['OutfitSB', 'Outfit-SemiBold'], ['Corm', 'Cormorant-Italic']]) if (!CZ_FONTS[n]) CZ_FONTS[n] = (await czB64('vendor/fonts/' + f + '.ttf?v=' + APP_VER)).split(',')[1];
+  const LW = await czB64('img/cotiz-logo-white.png'), LD = await czB64('img/cotiz-logo-dark.png');
+  const doc = new window.jspdf.jsPDF({ unit: 'pt', format: 'letter' }), W = 612, H = 792, mx = 43, cw = W - 2 * mx;
+  for (const n in CZ_FONTS) { doc.addFileToVFS(n + '.ttf', CZ_FONTS[n]); doc.addFont(n + '.ttf', n, 'normal'); }
+  const C = { dark: [43, 47, 51], or: [224, 141, 57], verde: [35, 55, 47], arena: [241, 238, 229], beige: [228, 219, 209], gris: [94, 98, 102], linea: [228, 219, 209], suave: [122, 126, 128] };
+  const tx = (s, x, y, o = {}) => { doc.setFont(o.f || 'Outfit', 'normal'); doc.setFontSize(o.s || 9.6); doc.setTextColor(...(o.c || C.dark)); doc.text(s, x, y, { align: o.a || 'left', charSpace: o.cs || 0, maxWidth: o.w }); };
+  const wrap = (s, w, o = {}) => { doc.setFont(o.f || 'Outfit', 'normal'); doc.setFontSize(o.s || 9.6); return doc.splitTextToSize(String(s), w); };
+  const para = (s, x, y, w, o = {}) => { const L = wrap(s, w, o), lh = (o.s || 9.6) * (o.lh || 1.45); L.forEach((l, i) => tx(l, x, y + i * lh, o)); return y + L.length * lh; };
+  const up = s => String(s).toUpperCase(), m = n => money(Math.round(n));
+  const fch = parse(d.fecha || today()), mesTxt = MESES_L[fch.getMonth()] + ' ' + fch.getFullYear();
+  const pies = [];
+  const head = sec => { doc.addImage(LD, 'PNG', mx, 30, 80, 20); tx(up(sec), W - mx, 44, { s: 7, cs: 1.6, c: C.gris, a: 'right' }); doc.setDrawColor(...C.linea); doc.setLineWidth(0.7); doc.line(mx, 60, W - mx, 60); return 92; };
+  const h2 = (n, t, y, s = 21) => { let x = mx; if (n) { tx(n, mx, y - 3, { f: 'OutfitSB', s: 8.5, c: C.or, cs: 1 }); x += 20; } tx(t, x, y, { f: 'Corm', s }); return y + 16; };
+  const nueva = (sec, pie) => { doc.addPage(); pies.push(pie); return head(sec); };
+  // ---- 1 · Presentación y administración
+  pies.push('MGM Housing Management · Av. Patria 1891, Col. Puerta de Hierro, Zapopan, Jal.');
+  const tit1 = wrap(d.depa || 'Depa', cw, { f: 'Corm', s: 30 }), lead = wrap(czPortada(d), 455, { s: 10.2 }), bandH = 128 + tit1.length * 31 + 22 + lead.length * 14.8 + 52;
+  doc.setFillColor(...C.dark); doc.rect(0, 0, W, bandH, 'F'); doc.addImage(LW, 'PNG', mx, 26, 120, 30); tx(up('Guadalajara · ' + mesTxt), W - mx, 38, { s: 7, cs: 1.6, c: [201, 198, 192], a: 'right' });
+  let y = 98; tx(up('Propuesta de administración y decoración'), mx, y, { f: 'OutfitSB', s: 7.6, cs: 1.5, c: C.or }); y += 30;
+  tit1.forEach(l => { tx(l, mx, y, { f: 'Corm', s: 30, c: [255, 255, 255] }); y += 31; }); tx('listo para estancia corta', mx, y, { f: 'Corm', s: 30, c: [255, 255, 255] }); y += 22;
+  lead.forEach(l => { tx(l, mx, y, { s: 10.2, c: [218, 215, 209] }); y += 14.8; });
+  doc.setDrawColor(90, 95, 100); doc.setLineWidth(0.7); const sk = [[0, 52], [40, 52], [40, 22], [70, 22], [70, 52], [110, 52], [110, 40], [150, 40], [150, 30], [200, 30], [200, 48], [250, 48], [250, 36], [300, 36], [300, 44], [345, 44], [345, 30], [370, 30], [370, 52], [430, 52], [430, 34], [470, 34], [470, 52], [520, 52], [520, 42], [560, 42], [560, 28], [610, 28], [610, 40], [650, 40], [650, 18], [700, 18], [700, 44], [745, 44], [745, 30], [790, 30], [790, 50], [816, 50]];
+  for (let i = 1; i < sk.length; i++) doc.line(sk[i - 1][0] * 0.75, bandH - 36 + sk[i - 1][1] * 0.6, sk[i][0] * 0.75, bandH - 36 + sk[i][1] * 0.6);
+  y = bandH + 34; y = h2('01', 'Presentación y propuesta de administración', y) + 2;
+  y = para('¡Muchas gracias por tu interés en nuestro servicio de administración de propiedades de renta en estancias cortas! Las rentas de estancia corta tienen múltiples beneficios, a destacar:', mx, y, cw) + 2;
+  const bw = (cw - 15) / 4; let bh = 0; CZ_BENEF.forEach(([t, s]) => { bh = Math.max(bh, 22 + wrap(s, bw - 14, { s: 7.8 }).length * 10.5); });
+  CZ_BENEF.forEach(([t, s], i) => { const x = mx + i * (bw + 5); doc.setFillColor(...C.arena); doc.rect(x, y, bw, bh, 'F'); doc.setFillColor(...C.or); doc.rect(x, y, 2.2, bh, 'F'); tx(t, x + 8, y + 12, { f: 'OutfitSB', s: 7.8 }); para(s, x + 8, y + 23, bw - 14, { s: 7.8, lh: 1.35 }); });
+  y += bh + 18; y = para('Y refiriéndome específicamente a tu propiedad, mi compromiso será siempre cuidarla como si fuera propia.', mx, y, cw, { f: 'Corm', s: 13.5, c: C.verde }) + 4;
+  doc.setDrawColor(...C.dark); doc.setLineWidth(0.7); doc.roundedRect(mx, y, cw, 38, 3, 3, 'S'); doc.setFillColor(...C.or); doc.rect(mx, y, cw, 2.2, 'F');
+  tx(String(d.adm?.pct ?? 15) + '%', mx + 12, y + 26, { f: 'Corm', s: 20, c: C.verde }); tx('Nuestra tarifa: ' + (d.adm?.pct ?? 15) + '% ' + String(d.adm?.base || '').replace(/^./, c => c.toLowerCase()), mx + 56, y + 17, { f: 'OutfitSB', s: 9.6 }); tx(d.adm?.nota || '', mx + 56, y + 29, { s: 8.3, c: C.gris, w: cw - 70 });
+  y += 54; const G = d.adm?.grupos || [], colW = (cw - 22) / 2, colY = [y, y];
+  G.forEach((g, i) => { const c = i % 2, x = mx + c * (colW + 22); let yy = colY[c];
+    tx(up(g.t), x, yy, { f: 'OutfitSB', s: 6.8, cs: 1.1, c: C.verde }); doc.setDrawColor(...C.linea); doc.line(x, yy + 4, x + colW, yy + 4); yy += 15;
+    g.items.forEach(it => { const sub = it.startsWith('-'), s = sub ? it.replace(/^-\s*/, '') : it, L = wrap(s, colW - (sub ? 22 : 11), { s: sub ? 7.9 : 8.3 });
+      if (sub) { doc.setDrawColor(154, 160, 156); doc.circle(x + 14, yy - 2.6, 1.6, 'S'); } else { doc.setFillColor(...C.or); doc.circle(x + 2.5, yy - 2.8, 2, 'F'); }
+      L.forEach((l, j) => tx(l, x + (sub ? 20 : 10), yy + j * 11, { s: sub ? 7.9 : 8.3, c: sub ? C.gris : C.dark })); yy += L.length * 11 + 2; });
+    colY[c] = yy + 10; });
+  y = Math.max(...colY) + 2; const ex = d.adm?.extras || [], ew = (cw - 8) / 2;
+  ex.forEach((e, i) => { const x = mx + (i % 2) * (ew + 8), yy = y + Math.floor(i / 2) * 42; doc.setFillColor(...C.beige); doc.rect(x, yy, ew, 34, 'F');
+    tx('SERVICIO EXTRA', x + 10, yy + 13, { s: 6.2, cs: 1.1, c: C.verde }); tx(e.t, x + 10, yy + 25, { f: 'OutfitSB', s: 8.6 }); tx(e.v, x + ew - 10, yy + 19, { f: 'OutfitSB', s: 8.6, a: 'right' }); });
+  // ---- 2 · Proyección financiera
+  const per = czPeriodo(P), anio = P.n ? P.M[P.n - 1].mes.slice(0, 4) : '';
+  y = nueva('02 · Proyección financiera', `Cifras en MXN. Ingresos reales ${anio} de ${d.proy?.fuente || 'departamentos similares'}; no garantizados para el ${czDepaCorto(d)}.`);
+  y = h2('02', 'Proyección financiera', y); y = para(`Inversión para dejar listo el ${czDepaCorto(d)} y lo que les quedó a los propietarios de ${d.proy?.fuente || 'departamentos similares'}.`, mx, y, cw, { s: 9, c: C.gris }) + 10;
+  const kw = (cw - 14) / 2, card = (x, ey, t, rows, k, note) => { const hh = 58 + rows.length * 19 + (note ? 26 : 0); doc.setDrawColor(...(k ? C.dark : [216, 211, 202])); doc.setLineWidth(0.7); doc.roundedRect(x, y, kw, hh, 3, 3, 'S'); if (k) { doc.setFillColor(...C.or); doc.rect(x, y, kw, 2.2, 'F'); }
+    tx(up(ey), x + 12, y + 18, { s: 6.4, cs: 1.3, c: C.gris }); tx(t, x + 12, y + 36, { f: 'Corm', s: 14.5 });
+    rows.forEach(([a, b, g], i) => { const ry = y + 48 + i * 19; doc.setDrawColor(...C.linea); doc.line(x + 12, ry, x + kw - 12, ry); tx(a, x + 12, ry + 13, { s: 8.6, f: g ? 'OutfitSB' : 'Outfit' }); tx(b, x + kw - 12, ry + 13, { s: 8.6, f: 'OutfitSB', a: 'right' }); });
+    if (note) { const ny = y + 52 + rows.length * 19; doc.setFillColor(227, 235, 229); doc.rect(x + 12, ny, kw - 24, 20, 'F'); tx(note, x + 18, ny + 13, { s: 7.6, c: C.verde }); } return hh; };
+  const h1 = card(mx, 'Inversión total', 'Decoración y amueblado', [['Amueblado y equipamiento', m(T.sub)], [`Honorarios MGM (${d.deco?.pct ?? 15}%)`, m(T.fee)], ['Gran total', m(T.tot), 1]], 1);
+  const h2b = card(mx + kw + 14, 'Departamentos similares · ' + per, 'Ingreso neto de referencia', [['Promedio mensual', m(P.avg)], ['Acumulado ' + per, m(P.acc)]], 0, 'Neto después de comisión, impuestos, mantenimiento y servicios.');
+  y += Math.max(h1, h2b) + 24; tx('Ingreso neto mensual, ' + per, mx, y, { f: 'OutfitSB', s: 9.6 }); y += 12; tx('Ya descontada la comisión de MGM, impuestos, mantenimiento, agua, luz e internet.', mx, y, { s: 7.8, c: C.gris }); y += 14;
+  const chH = 124, top = Math.ceil(P.max * 1.08 / 1000) * 1000 || 1000, gap = 6, bwid = P.n ? (cw - gap * (P.n - 1)) / P.n : 0, base = y + chH;
+  P.M.forEach((x, i) => { const bx = mx + i * (bwid + gap), hh = x.v / top * (chH - 12); doc.setFillColor(...C.or); doc.rect(bx, base - hh, bwid, hh, 'F'); tx(m(x.v), bx + bwid / 2, base - hh - 3, { s: 6.2, c: C.gris, a: 'center' }); tx(czMesN(x.mes).replace(/^./, c => c.toUpperCase()), bx + bwid / 2, base + 11, { s: 6.6, c: C.gris, a: 'center' }); });
+  doc.setDrawColor(...C.dark); doc.setLineWidth(0.7); doc.line(mx, base, W - mx, base); const ay = base - P.avg / top * (chH - 12); doc.setLineDashPattern([3, 2], 0); doc.line(mx, ay, W - mx, ay); doc.setLineDashPattern([], 0);
+  y = base + 28; tx(`Línea punteada: promedio mensual de ${m(P.avg)}.`, mx, y, { s: 7.6, c: C.gris }); y += 18;
+  const tw = (cw - 18) / 2, varios = P.n && P.M[0].mes.slice(0, 4) !== P.M[P.n - 1].mes.slice(0, 4);
+  doc.setFillColor(...C.verde); doc.rect(mx, y, tw, 18, 'F'); tx(up(varios ? 'Mes' : 'Mes ' + anio), mx + 7, y + 12, { s: 6.6, cs: 1.2, c: [255, 255, 255] }); tx(up('Ingreso neto'), mx + tw - 7, y + 12, { s: 6.6, cs: 1.2, c: [255, 255, 255], a: 'right' });
+  let ty = y + 18; const trow = (a, b, tot) => { if (tot) { doc.setFillColor(...C.arena); doc.rect(mx, ty, tw, 16, 'F'); } tx(a, mx + 7, ty + 11, { s: 8.4, f: tot ? 'OutfitSB' : 'Outfit' }); tx(b, mx + tw - 7, ty + 11, { s: 8.4, f: tot ? 'OutfitSB' : 'Outfit', a: 'right' }); doc.setDrawColor(...C.linea); doc.line(mx, ty + 16, mx + tw, ty + 16); ty += 16; };
+  P.M.forEach(x => trow(czMesN(x.mes, 1) + (varios ? ' ' + x.mes.slice(0, 4) : ''), m(x.v))); trow('Promedio mensual', m(P.avg), 1); trow('Acumulado ' + per, m(P.acc), 1);
+  const lx = mx + tw + 18; tx('Lectura', lx, y + 10, { f: 'OutfitSB', s: 9.6 }); let ly = para(czLectura(d), lx, y + 26, tw, { s: 9 }) + 12;
+  para(`Los ingresos son resultados reales de ${d.proy?.fuente || 'departamentos similares'}; son una referencia y no garantizan los resultados del ${czDepaCorto(d)}.`, lx, ly, tw, { s: 7.8, c: C.gris });
+  // ---- 3 · Propuesta de decoración (resumen)
+  const pieCot = `Cotización sujeta a variación de ±10%. Vigencia ${Number(d.vigencia) || 30} días.`;
+  y = nueva('03 · Propuesta de decoración', pieCot); y = h2('03', 'Propuesta de decoración', y); y = para((d.deco?.intro || '').replace(/el depa/g, 'el ' + czDepaCorto(d)), mx, y, cw, { s: 9, c: C.gris }) + 12;
+  tx('Resumen de la cotización', mx, y, { f: 'OutfitSB', s: 9.6 }); y += 8;
+  doc.setFillColor(...C.verde); doc.rect(mx, y, cw, 20, 'F'); tx('CATEGORÍA', mx + 9, y + 13, { s: 6.8, cs: 1.3, c: [255, 255, 255] }); tx('IMPORTE', W - mx - 9, y + 13, { s: 6.8, cs: 1.3, c: [255, 255, 255], a: 'right' }); y += 20;
+  const srow = (a, b, tot) => { if (tot) { doc.setFillColor(...C.arena); doc.rect(mx, y, cw, 19, 'F'); } tx(a, mx + 9, y + 13, { s: 8.8, f: tot ? 'OutfitSB' : 'Outfit' }); tx(b, W - mx - 9, y + 13, { s: 8.8, f: tot ? 'OutfitSB' : 'Outfit', a: 'right' }); doc.setDrawColor(...C.linea); doc.line(mx, y + 19, W - mx, y + 19); y += 19; };
+  (d.deco?.areas || []).forEach(a => srow(a.etiqueta || a.n, m(czAreaTot(a)))); srow('Subtotal', m(T.sub), 1); srow(`Honorarios MGM (${d.deco?.pct ?? 15}% sobre el subtotal)`, m(T.fee)); srow('Gran total', m(T.tot), 1);
+  y += 12; tx('El detalle partida por partida está en el anexo.', mx, y, { s: 7.8, c: C.gris }); y += 26;
+  const cond = [`Vigencia: ${Number(d.vigencia) || 30} días, hasta el ${czVigencia(d)}.`, ...(d.deco?.condiciones || []), `Honorarios de ${d.deco?.pct ?? 15}% sobre el subtotal de amueblado y equipamiento.`];
+  const ch = 26 + cond.reduce((n, c) => n + wrap(c, cw - 30, { s: 8.8 }).length * 12.5, 0); doc.setFillColor(...C.arena); doc.rect(mx, y, cw, ch, 'F'); doc.setFillColor(...C.or); doc.rect(mx, y, 2.2, ch, 'F');
+  tx('Condiciones de la cotización', mx + 13, y + 16, { f: 'OutfitSB', s: 9.4 }); let cy = y + 30; cond.forEach(c => { cy = para(c, mx + 13, cy, cw - 30, { s: 8.8, lh: 1.42 }); }); y += ch; const y3 = y;
+  const firma = yy => { const F = d.firma || {}; tx('Quedo a sus órdenes para revisarlo juntos.', mx, yy, { s: 9.6 }); tx(F.nombre || '', mx, yy + 22, { f: 'OutfitSB', s: 10 }); tx(['MGM Housing Management', F.tel, F.correo].filter(Boolean).join(' · '), mx, yy + 35, { s: 8, c: C.gris }); doc.addImage(LD, 'PNG', W - mx - 110, yy + 8, 110, 27); };
+  // ---- Anexo: detalle
+  y = nueva('03 · Anexo: detalle de la cotización', pieCot); y = h2('', 'Detalle de la cotización', y, 18); y = para('Importe por categoría; incluye todos los artículos listados, con compra, entrega, armado e instalación.', mx, y, cw, { s: 8.8, c: C.gris }) + 8;
+  const dw = (cw - 14) / 2, ya = y, lim = H - 60; let col = 0, dy = ya;
+  const dhead = () => { const x = mx + col * (dw + 14); doc.setFillColor(...C.verde); doc.rect(x, dy, dw, 15, 'F'); tx('ÁREA', x + 5, dy + 10, { s: 5.8, cs: 1, c: [255, 255, 255] }); tx('CONCEPTO', x + 55, dy + 10, { s: 5.8, cs: 1, c: [255, 255, 255] }); tx('IMPORTE', x + dw - 5, dy + 10, { s: 5.8, cs: 1, c: [255, 255, 255], a: 'right' }); dy += 15; };
+  const dsalto = n => { if (dy + n <= lim) return; if (col === 0) { col = 1; dy = ya; } else { y = nueva('03 · Anexo: detalle de la cotización', pieCot); col = 0; dy = y; } dhead(); };
+  const drow = (a, c, v, cat) => { const x = mx + col * (dw + 14), L = cat ? [c] : wrap(c, dw - 115, { s: 6.9 }), rh = Math.max(12.5, L.length * 8.6 + 4); dsalto(rh); const xx = mx + col * (dw + 14);
+    if (cat) { doc.setFillColor(...C.arena); doc.rect(xx, dy, dw, rh + 1.5, 'F'); tx(c, xx + 5, dy + 9.5, { f: 'OutfitSB', s: 7 }); } else { tx(a, xx + 5, dy + 9, { s: 6.9, c: C.suave }); L.forEach((l, i) => tx(l, xx + 55, dy + 9 + i * 8.6, { s: 6.9 })); }
+    if (v) tx(v, xx + dw - 5, dy + 9.5, { s: 6.9, f: cat ? 'OutfitSB' : 'Outfit', a: 'right' }); doc.setDrawColor(234, 229, 220); doc.line(xx, dy + rh + (cat ? 1.5 : 0), xx + dw, dy + rh + (cat ? 1.5 : 0)); dy += rh + (cat ? 1.5 : 0); };
+  dhead(); (d.deco?.areas || []).forEach(a => { dsalto(30); drow('', a.n, m(czAreaTot(a)), 1); (a.items || []).forEach(it => drow(it.a, it.c, it.m != null && it.m !== '' ? m(it.m) : '')); });
+  dsalto(48); drow('', 'Subtotal', m(T.sub), 1); drow('', `Honorarios MGM (${d.deco?.pct ?? 15}%)`, m(T.fee)); drow('', 'Gran total', m(T.tot), 1);
+  // ---- Mood board + firma
+  const fotos = d.mood?.fotos || [];
+  if (fotos.length) {
+    y = nueva('03 · Mood board', 'MGM Housing Management · Av. Patria 1891, Col. Puerta de Hierro, Zapopan, Jal.'); y = h2('', 'Mood board', y, 18); y = para(d.mood?.intro || '', mx, y, cw, { s: 8.8, c: C.gris }) + 6;
+    (d.mood?.paleta || []).forEach((c, i) => { const v = c.replace('#', ''); doc.setFillColor(parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)); doc.circle(mx + 16 + i * 38, y + 16, 16, 'F'); }); y += 44;
+    const gw = (cw - 12) / 3, gh = Math.min(148, gw * 0.95);
+    for (let i = 0; i < Math.min(9, fotos.length); i++) { const x = mx + (i % 3) * (gw + 6), yy = y + Math.floor(i / 3) * (gh + 6); try { const url = CZ_URL[fotos[i]] || (CZ_URL[fotos[i]] = await DB.photoUrl(fotos[i])); doc.addImage(await czImg(url, gw, gh), 'JPEG', x, yy, gw, gh); } catch (_) { doc.setFillColor(...C.arena); doc.rect(x, yy, gw, gh, 'F'); } }
+    y += Math.ceil(Math.min(9, fotos.length) / 3) * (gh + 6) + 18; firma(Math.min(y, H - 96));
+  } else { doc.setPage(3); firma(Math.min(y3 + 40, H - 96)); doc.setPage(doc.getNumberOfPages()); }
+  // ---- pies de página
+  const N = doc.getNumberOfPages(); for (let i = 1; i <= N; i++) { doc.setPage(i); doc.setFillColor(...C.verde); doc.rect(0, H - 30, W, 30, 'F'); tx(pies[i - 1] || pies[pies.length - 1], mx, H - 12, { s: 6.4, c: [228, 231, 227] }); tx(i + ' / ' + N, W - mx, H - 12, { s: 6.4, c: [228, 231, 227], a: 'right' }); }
+  const name = `Propuesta ${d.depa || 'MGM'} ${d.cliente || ''} v${q.version}`.trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_') + '.pdf';
+  S.czPdf = { id: q.id, blob: doc.output('blob'), name }; toast('PDF listo');
 }
 
 initJump();
