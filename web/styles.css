@@ -66,7 +66,7 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .cal thead tr.num th .off{color:#ffb4a8;font-weight:500;font-size:11px;margin-left:6px}
 .cal tbody tr:nth-child(odd) td{background:#16301a}.cal tbody tr:nth-child(even) td{background:#1d3d21}
 .cal td.dpc,.cal th.dpc{position:sticky;left:0;z-index:1;background:#0d1a0f!important;color:#7ee08a;font-weight:700;min-width:96px}
-.cal .ds{border-left:1.5px solid #7ee08a}
+.cal .ds{border-left:calc(var(--lw,1px)*1.5) solid #7ee08a}
 .cal td.oc{color:#8fc3ff;min-width:44px}.cal td.en{color:#ff6b57;font-weight:600;min-width:52px}.cal td.es{color:#9aa59b;font-size:11px;min-width:30px}
 .cal td.na{color:#9b7bff;font-size:11px}
 .cal .k{color:#c08cff;font-weight:800;border:none;background:none;padding:0 4px;min-width:20px}
@@ -135,12 +135,12 @@ h2{color:var(--mute);letter-spacing:.08em;font-weight:600;font-size:12px}
 .b.n{color:var(--acc);background:var(--acc2)}
 /* calendario claro */
 .cal{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:10px 0 2px}
-.cal thead th{color:var(--acc);border-bottom:1px solid var(--acc);font-weight:600;letter-spacing:.04em}
-.cal thead tr.num th{color:var(--ink);border-bottom:1px solid var(--line)}
+.cal thead th{color:var(--acc);border-bottom:var(--lw,1px) solid var(--acc);font-weight:600;letter-spacing:.04em}
+.cal thead tr.num th{color:var(--ink);border-bottom:var(--lw,1px) solid var(--line)}
 .cal thead tr.num th .off{color:var(--baja)}
 .cal tbody tr:nth-child(odd) td{background:#fff}.cal tbody tr:nth-child(even) td{background:#f6f4ef}
 .cal td.dpc,.cal th.dpc{background:#f1eee7!important;color:var(--ink);font-weight:600}
-.cal .ds{border-left:1px solid #cdd6cf}
+.cal .ds{border-left:var(--lw,1px) solid #c3cdc5}
 .cal td.oc{color:#1f5fa8}.cal td.en{color:#b5372b}.cal td.es{color:#7b8082}.cal td.na{color:#8b84a8;font-style:italic}
 .cal .k{color:#6b3fa0}.cal .k.vacio{color:#b5372b;border:1px dashed #b5372b;border-radius:6px}
 .cal .xl{color:#6b3fa0;font-size:11px;cursor:pointer}
@@ -215,3 +215,118 @@ a.btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 
 
 .sw{position:relative;display:inline-block;width:52px;height:30px;flex:none}.sw input{opacity:0;width:0;height:0}.sw span{position:absolute;inset:0;background:#c9c9c9;border-radius:30px;transition:.2s}.sw span:before{content:"";position:absolute;width:24px;height:24px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}.sw input:checked+span{background:#2e7d4f}.sw input:checked+span:before{transform:translateX(22px)}.sw input:disabled+span{opacity:.5}
 .list.off{opacity:.55}
+
+/* Estadísticas: filtro fijo, semáforos y tablas ordenables */
+.stfix{margin-bottom:4px} /* lo congela fijarCabecera(), igual que en las demás pestañas */
+.kpi.st{border-left:5px solid var(--line)}
+.kpi.st-k-ok{border-left-color:var(--alta);background:var(--altabg)}.kpi.st-k-ok .v{color:var(--alta)}
+.kpi.st-k-med{border-left-color:var(--cambio);background:var(--cambiobg)}.kpi.st-k-med .v{color:var(--cambio)}
+.kpi.st-k-mal{border-left-color:var(--baja);background:var(--bajabg)}.kpi.st-k-mal .v{color:var(--baja)}
+.st-ok{color:var(--alta)}.st-med{color:var(--cambio)}.st-mal{color:var(--baja)}
+.sttab th{padding:0;white-space:nowrap}.sttab th button{border:none;background:none;padding:8px 6px;font:inherit;font-weight:700;color:var(--acc);min-height:40px}
+.sttab td{white-space:nowrap}.sttab tr.tap:active{background:var(--acc2)}
+
+.stlogro{background:var(--altabg);color:var(--alta);border-radius:12px;padding:10px 12px;font-size:13px}
+.sttree{position:relative;width:100%;height:240px}
+.sttree button{position:absolute;border:2px solid var(--card);border-radius:8px;padding:6px 8px;overflow:hidden;text-align:left;display:flex;flex-direction:column;justify-content:flex-start;gap:2px;color:#fff;min-height:0;font-size:12px;line-height:1.2}
+.sttree button b{font-size:13px;white-space:nowrap}.sttree button span{font-size:11px;opacity:.95}
+.sttree .st-b-ok{background:#1e7d4f}.sttree .st-b-med{background:#a86c00}.sttree .st-b-mal{background:#b3261e}
+.sttab tr.sttorre td{background:var(--acc2)!important;font-weight:700;border-top:2px solid var(--line)}
+
+/* Ligas: resumen con semáforo y renglones que se abren */
+.ligares{border-left:5px solid var(--line)}.ligares.st-k-ok{border-left-color:var(--alta)}.ligares.st-k-med{border-left-color:var(--cambio)}.ligares.st-k-mal{border-left-color:var(--baja)}
+.ligadot{width:14px;height:14px;border-radius:50%;flex:none}.ligadot.st-b-ok{background:var(--alta)}.ligadot.st-b-med{background:var(--cambio)}.ligadot.st-b-mal{background:var(--baja)}
+.ligatog{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:none;background:none;text-align:left;padding:4px 0;min-height:44px;font:inherit;color:inherit}
+.ligaflecha{margin-left:auto;color:var(--mut);font-size:16px}
+.ligadet{padding:4px 14px 14px;border-bottom:1px solid var(--line);background:var(--bg)}
+
+/* Estándar sin amontonar: renglones y secciones que se abren */
+.aclist{padding:0 14px}.aclist.off{opacity:.55}
+.acrow{border-bottom:1px solid var(--line)}.acrow:last-child{border-bottom:none}
+.achead{display:flex;align-items:center;gap:8px;min-height:54px}
+.actog{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:none;background:none;text-align:left;padding:8px 0;min-height:44px;font:inherit;color:inherit;min-width:0}
+.acti{display:flex;flex-direction:column;gap:2px;min-width:0}.act{font-weight:600}
+.acbody{padding:4px 0 14px}
+.ligadot.st-b-n{background:#b9b3a5}
+
+.acbody>.card,.acbody>.card.list,.acbody>.card.scroll{border:none;box-shadow:none;padding:0;margin:0 0 8px;background:none}
+
+/* Calendario más compacto: primer nombre y menos aire entre columnas */
+.cal th,.cal td{padding:4px 3px}
+.cal td.dpc,.cal th.dpc{min-width:78px;padding-left:8px}
+.cal td.oc{min-width:30px}.cal td.en{min-width:30px}.cal td.es{min-width:0}
+.cal .k{padding:0 2px;min-width:16px}
+
+/* Calendario · vista Nueva (S/N): misma cuadrícula, con color */
+.calv{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;opacity:.75}
+.calv button{border:none;border-radius:0;background:transparent;padding:3px 8px;font-size:12px;font-weight:600;color:var(--mute);min-width:0}
+.calv button.on{background:var(--acc);color:#fff}
+.calleg{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}.calleg .sp{flex:1}.calleg span{display:inline-flex;align-items:center;gap:4px}.calleg i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.calwrap.nv .cal tbody tr td.noc{background:#e8f1fb}
+.calwrap.nv .cal tbody tr td.sal{background:#fbecea}
+.calwrap.nv .cal td.oc.ent{font-weight:700}
+.calwrap.nv .cal td.oc.noc:not(.ent){text-align:center;color:#5f8fc7}
+.calwrap.nv .cal .k{background:#6b3fa0;color:#fff;border-radius:999px;min-width:20px;height:20px;padding:0 5px;font-size:10.5px;line-height:20px}
+.calwrap.nv .cal .k.vacio{background:#fff;color:#b5372b;border:1.5px dashed #b5372b;line-height:17px}
+.calwrap.nv .cal .falta{background:#b5372b;color:#fff;border-radius:4px;padding:1px 4px;font-size:10px}
+.calwrap.nv .cal td.na{background:repeating-linear-gradient(135deg,#f0eef6 0 6px,#e6e3f0 6px 12px)!important;color:#6a6388}
+.calwrap.nv .cal thead th.fin{background:#efece5}
+.calwrap.nv .cal thead th.hoy{background:#f3e6d6;border-bottom-color:var(--cobre)}
+.calwrap.nv .cal tbody tr.tsep td{border-top:calc(var(--lw,1px)*2) solid #a9b8ad}
+
+/* Calendario · cabecera compacta */
+.calhead.calc{padding:8px 10px 0}
+.calc .crow{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.calc .crow button{padding:6px 10px;min-height:34px;font-size:13.5px;white-space:nowrap}
+.calc .crow .d{flex:1;text-align:center;font-weight:700;font-size:15px;white-space:nowrap}
+.calc .crow .sp{flex:1}
+.calc .czoom{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.calc .czoom button{border:none;background:none;padding:6px 8px}
+.calc .czoom .m{font-size:12px;min-width:32px;text-align:center}
+.calc .calleg{flex-wrap:nowrap;gap:4px 9px;font-size:11.5px;margin:0 2px 6px!important;white-space:nowrap}
+/* Calendario N · renglón de días en morado, más visible */
+.calwrap.nv .cal thead tr:first-child th,.calwrap.nv .cal thead tr:first-child th.dpc{background:#5b3a8c!important;color:#fff!important;border-bottom:none;padding-top:6px;padding-bottom:6px}
+.calwrap.nv .cal thead tr.num th,.calwrap.nv .cal thead tr.num th.dpc{background:#ece4f7!important;color:#3d2466;font-weight:700;border-bottom:calc(var(--lw,1px)*2) solid #5b3a8c}
+.calwrap.nv .cal thead tr.num th.fin{background:#e0d4f1!important}
+.calwrap.nv .cal thead tr.num th.hoy{background:#f3e6d6!important;color:var(--cobre)!important;border-bottom-color:var(--cobre)}
+.calwrap.nv .cal thead .ds{border-left-color:#8f77b5}
+
+/* Portada Hoy (aprobada por María) */
+.hoywa{border-radius:20px;padding:6px 12px;font-size:13.5px}
+.hoyk .kpi{border:none;border-top:4px solid}
+.hoyk .hk-sale{background:#fbecea;border-top-color:#a3301f}.hoyk .hk-sale .v{color:#a3301f}
+.hoyk .hk-entra{background:#e8f1fb;border-top-color:#1f5fa8}.hoyk .hk-entra .v{color:#1f5fa8}
+.hoyk .hk-occ{background:#e3efe8;border-top-color:#1f6b4a}.hoyk .hk-occ .v{color:#1f6b4a}
+.hoyk .hk-libre{background:#fbefd6;border-top-color:#6b4500}.hoyk .hk-libre .v{color:#6b4500}
+.hoyk .kpi .l{color:var(--ink)}
+.hoyr{gap:10px}.hoyr .hrs{width:58px;flex:none;border-radius:10px;padding:5px 0;display:flex;flex-direction:column;align-items:center;line-height:1.15}
+.hoyr .hrs b{font-size:17px}.hoyr .hrs span{font-size:10px;font-weight:600}
+.hoyr .hrs.mal{background:#fbe6e2;color:#a3301f}.hoyr .hrs.med{background:#fbefd6;color:#6b4500}
+.hoyp{margin-top:12px}.hoyp .it{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.hoyp .n{width:24px;height:24px;border-radius:50%;background:var(--acc);color:#fff;font-size:12.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+button.lnk{border:none;background:none;color:var(--acc);font-weight:600;padding:4px 0}
+.hoym{margin-top:10px}
+
+/* Gestión de Ocupación */
+.ocbar{position:relative;height:10px;border-radius:5px;background:#efece5;margin-top:4px}
+.ocbar i{position:absolute;left:0;top:0;height:10px;border-radius:5px}
+.ocbar b{position:absolute;top:-3px;width:3px;height:16px;background:var(--ink)}
+button.ochero{display:block;width:100%;text-align:left;margin-bottom:6px}
+.ocheat{width:100%;border-collapse:separate;border-spacing:3px;font-size:12px}
+.ocheat th{font-weight:600;text-align:left;padding:4px 3px;color:var(--mute);font-size:10.5px;line-height:1.2}.ocheat thead th:not(:first-child){text-align:center}
+.ocheat tbody th{color:var(--ink);font-size:12.5px}
+.ocheat td{border-radius:8px;padding:6px 2px;text-align:center;min-width:50px}
+.ocheat td b{display:block;font-size:13px}.ocheat td span{font-size:10.5px}
+.ocheat td.v{background:#faf9f6}
+.ocn{width:22px;height:22px;border-radius:50%;background:var(--acc);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+.ocm .it{display:flex;align-items:center;gap:8px;padding:8px 0}
+a.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+a.btn.sp{flex:1}
+
+/* P&L */
+.pltab{width:100%;border-collapse:collapse;font-size:13.5px}
+.pltab td{padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+.pltab td.r{text-align:right;white-space:nowrap}
+.pltab tr.h td{font-weight:700;color:var(--acc);font-size:12px;letter-spacing:.04em;text-transform:uppercase;border-bottom:none;padding-top:12px}
+.pltab tr.s td{font-weight:600;border-top:1px solid var(--ink)}
+.pltab tr.t td{font-weight:700;font-size:14.5px;border-top:2px solid var(--ink);background:#f6f4ef}

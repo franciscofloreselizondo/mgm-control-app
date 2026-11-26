@@ -1,0 +1,3 @@
+-- Claudio puede corregir (depa, categoría, monto, fecha, descripción) SOLO los movimientos que él registró (via = 'claudio')
+-- y que no son pagos de servicio. Función claudio_editar(p_movimiento, p_depa, p_categoria, p_monto, p_fecha, p_descripcion, p_quien):
+-- aplicada en la base el 24/11/2026 con el nombre de migración "claudio_editar" (ver historial de migraciones de Supabase para el cuerpo).

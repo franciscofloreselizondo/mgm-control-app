@@ -1,14 +1,21 @@
 // Service worker: notificaciones push + caché básico del "cascarón" de la app.
-const CACHE = 'mgm-v56';
+const CACHE = 'mgm-v84';
 const SHELL = ['./', 'index.html', 'vendor/supabase-2.119.0.js', 'manifest.webmanifest', 'icons/icon-192.png', 'img/mark-green.png', 'img/logo-white.png', 'img/skyline.svg'];
-self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {})); self.skipWaiting(); });
+// Instalación: baja el cascarón saltando la caché del CDN de GitHub (?sw=versión), para no guardar una página vieja justo después de publicar.
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(SHELL.map(u => fetch(u + (u.includes('?') ? '&' : '?') + 'sw=' + CACHE, { cache: 'reload' })
+    .then(r => r.ok ? c.put(u, r) : null).catch(() => null)))));
+  self.skipWaiting();
+});
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
 self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET' || u.origin !== location.origin) return;            // datos de Supabase siempre en vivo
   // Red primero (siempre la versión nueva); si la red no responde en 6 s o falla, usa la copia guardada.
   // Solo se guardan respuestas buenas (200), para no quedarse con una página rota.
-  const red = fetch(e.request, { cache: 'no-cache' }).then(r => { if (r.ok) { const c = r.clone(); caches.open(CACHE).then(x => x.put(e.request, c)); } return r; });
+  // Se pide con el Request original y sin opciones: así Safari conserva las redirecciones de una navegación
+  // (una respuesta redirigida servida por el SW deja la página en blanco). La caché del CDN la salta la app con ?v=N.
+  const red = fetch(e.request).then(r => { if (r.ok && !r.redirected) { const c = r.clone(); caches.open(CACHE).then(x => x.put(e.request, c)); } return r; });
   const espera = new Promise(res => setTimeout(res, 6000)).then(() => caches.match(e.request, { ignoreSearch: true }));
   e.respondWith(Promise.race([red, espera.then(c => c || red)]).catch(() => caches.match(e.request, { ignoreSearch: true })));
 });
