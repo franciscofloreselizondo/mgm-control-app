@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '84';
+const APP_VER = '85';
 const TABLES = ['properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log', 'pl_mensual', 'pl_listings', 'pl_ideas', 'precio_decisiones'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -813,6 +813,8 @@ const ocFecha = ts => { const d = new Date(ts); return d.getDate() + ' ' + MESES
 // Última decisión por idea. Pendiente = sin decisión, revertida, o "después" de un día anterior.
 function ocEstado() { const u = {}; S.t.precio_decisiones.slice().sort((a, b) => String(a.at).localeCompare(String(b.at))).forEach(x => { u[x.idea_id] = x; }); return u; }
 function ocPend() { const u = ocEstado(); return S.t.pl_ideas.filter(i => i.vigente !== false).filter(i => { const x = u[i.id]; return !x || x.estado === 'revertida' || (x.estado === 'despues' && String(x.at).slice(0, 10) < new Date().toISOString().slice(0, 10)); }).sort((a, b) => (a.prioridad || 50) - (b.prioridad || 50)); }
+const ocAuto = i => !!i && i.antes != null && i.nuevo != null && String(i.idea_id || i.id || '').startsWith('base-'); // precio base: lo aplica el sistema
+const OC_PASADA = 'en la siguiente pasada (cada hora, de 8 am a 10 pm)';
 function ocGuarda(row, msg) { const r = { id: uid(), por: S.me.email, at: new Date().toISOString(), ...row }; S.t.precio_decisiones.push(r); render(); return done(DB.insert('precio_decisiones', r), 'precio_decisiones', msg, 'alta'); }
 const OC_BANDAS = [['Menos de $1,200', 0, 1200], ['$1,200 a $1,499', 1200, 1500], ['$1,500 a $2,499', 1500, 2500], ['$2,500 o más', 2500, 1e9]];
 const ocBanda = l => l.moneda === 'USD' ? 3 : OC_BANDAS.findIndex(b => l.base >= b[1] && l.base < b[2]);
@@ -825,13 +827,12 @@ function ocModal() {
   let h = `<div class="sheet" data-ocx="1"><div class="in ocm"><h3>${esc(i.titulo)}</h3><div class="m" style="margin-bottom:8px">${esc(i.tipo)} · fuente: Motor de precios MGM</div>`;
   if (R.paso === 2) {
     h += `<div class="card" style="border:2px solid var(--acc)"><b>Confirma tu decisión</b><div style="margin:6px 0">Vas a aprobar: <b>${esc(i.code)}</b>, precio base de <b>${ocMon(i.antes, i.moneda)}</b> a <b>${ocMon(i.nuevo, i.moneda)}</b> (${pc > 0 ? 'sube' : 'baja'} ${Math.abs(pc)}%).</div><div class="m">El precio base mueve todas las noches futuras de este depa.</div></div>
-      <div class="card"><b>Puedes dar reversa</b><div class="m" style="margin-top:4px">La decisión queda en «Historial y deshacer» con el precio anterior (${ocMon(i.antes, i.moneda)}) para regresarlo cuando quieras.</div></div>
-      <div class="m" style="margin:8px 2px">La app no modifica el Motor de precios MGM. Al confirmar se registra tu decisión y tú aplicas el cambio en el Motor de precios MGM.</div>
+      <div class="card"><b>Puedes dar reversa</b><div class="m" style="margin-top:4px">La decisión queda en «Historial y deshacer» con el precio anterior (${ocMon(i.antes, i.moneda)}). Con «Deshacer» el sistema lo regresa.</div></div>
+      <div class="m" style="margin:8px 2px">Al confirmar, el sistema aplica el cambio en el Motor de precios MGM ${OC_PASADA} y lo deja registrado. Solo se ejecuta lo que tú confirmas aquí.</div>
       <div class="row" style="margin-top:10px"><button class="pri sp" data-ocact="confirmar">Sí, confirmo</button><button class="sp" data-ocact="volver">Regresar</button></div>`;
   } else if (R.paso === 3) {
-    h += `<div class="card" style="border:2px solid #2e7d4f"><b>Decisión registrada</b><div class="m" style="margin-top:4px">Falta aplicarla en el Motor de precios MGM: cambia el precio base de ${esc(i.code)} a <b>${ocMon(i.nuevo, i.moneda)}</b>.</div></div>
-      <div class="row" style="margin-top:10px"><a class="btn pri sp" href="${esc(ocLiga(i))}" target="_blank" rel="noopener">Abrir Motor de precios MGM</a></div>
-      <div class="row" style="margin-top:8px"><button class="sp" data-ocact="aplicada">Ya lo apliqué</button><button class="sp" data-ocact="cerrar">Lo aplico después</button></div>`;
+    h += `<div class="card" style="border:2px solid #2e7d4f"><b>Orden registrada</b><div class="m" style="margin-top:4px">El sistema cambiará el precio base de ${esc(i.code)} a <b>${ocMon(i.nuevo, i.moneda)}</b> ${OC_PASADA}. Cuando quede, la verás como APLICADA en Historial; ahí mismo puedes deshacerla.</div></div>
+      <div class="row" style="margin-top:10px"><button class="pri sp" data-ocact="cerrar">Listo</button><a class="btn sp" href="${esc(ocLiga(i))}" target="_blank" rel="noopener">Abrir Motor de precios MGM</a></div>`;
   } else {
     h += `<div class="card list">${precio ? fila('Precio base hoy', ocMon(i.antes, i.moneda)) + fila('Precio sugerido', ocMon(i.nuevo, i.moneda)) + fila('Cambio', (pc > 0 ? 'Sube ' : 'Baja ') + Math.abs(pc) + '%') : ''}${i.vence ? fila('La sugerencia vence', fmt(i.vence)) : ''}</div><div style="margin:8px 2px">${esc(i.detalle || '')}</div>`;
     if (!ocDecide()) h += `<div class="warn">Solo María puede decidir cambios de precio. Tú puedes consultar.</div><div class="row" style="margin-top:10px"><a class="btn sp" href="${esc(ocLiga(i))}" target="_blank" rel="noopener">Abrir Motor de precios MGM</a><button class="sp" data-ocact="cerrar">Cerrar</button></div>`;
@@ -848,12 +849,13 @@ VIEWS.ocupacion = () => {
   if (!Lall.length) return h + '<div class="card empty">Aún no hay datos del Motor de precios MGM cargados.</div>' + ocLibres();
   const act = Lall.map(l => l.actualizado).sort().pop();
   if (tab === 'his') {
-    h += `<div class="m" style="margin:0 2px 10px">Cada decisión guarda el valor anterior. «Deshacer» la revierte y te dice a qué precio regresar en el Motor de precios MGM. ${ocDecide() ? '' : 'Solo María puede deshacer.'}</div>`;
+    h += `<div class="m" style="margin:0 2px 10px">Cada orden guarda el precio anterior. El sistema aplica en el Motor de precios MGM lo que confirmas y, con «Deshacer», regresa el precio anterior ${OC_PASADA}. ${ocDecide() ? '' : 'Solo María puede deshacer.'}</div>`;
     const EST = { aprobada: ['APROBADA · FALTA APLICAR', 'cambio'], aplicada: ['APLICADA', 'alta'], despues: ['DESPUÉS', 'n'], ignorada: ['IGNORADA', 'n'], revertida: ['REVERTIDA', 'baja'] }, ult = ocEstado();
     const rows = D.slice().sort((a, b) => String(b.at).localeCompare(String(a.at)));
-    return h + (rows.length ? rows.map(x => { const e = EST[x.estado] || [x.estado, 'n'], viva = ult[x.idea_id] === x, precio = x.antes != null && x.nuevo != null, idea = S.t.pl_ideas.find(i => i.id === x.idea_id);
-      return `<div class="card"><div class="row"><div class="sp"><div><b>${esc(x.titulo || x.code || '')}</b></div><div class="m">${precio ? ocMon(x.antes, x.moneda) + ' → ' + ocMon(x.nuevo, x.moneda) + ' · ' : ''}${esc((S.t.app_users.find(u => u.email === x.por) || {}).name || x.por || '')} · ${ocFecha(x.at)}</div></div><span class="b ${e[1]}">${e[0]}</span></div>${x.nota ? `<div class="m" style="margin-top:6px">${esc(x.nota)}</div>` : ''}
-        ${viva && ocDecide() && x.estado !== 'revertida' ? `<div class="row" style="margin-top:8px">${x.estado === 'aprobada' && precio ? `<a class="btn" href="${esc(ocLiga(idea))}" target="_blank" rel="noopener">Abrir Motor de precios MGM</a><button data-ocmarca="${x.id}">Ya lo apliqué</button>` : ''}<span class="sp"></span><button data-ocdes="${x.id}">${['ignorada', 'despues'].includes(x.estado) ? 'Reactivar' : 'Deshacer'}</button></div>` : ''}</div>`; }).join('') : '<div class="card empty">Todavía no hay decisiones registradas.</div>');
+    const ejec = x => { const j = x.ejec || {}; return x.pendiente === 'aplicar' ? '<div class="m" style="margin-top:6px">⏳ El sistema la aplica ' + OC_PASADA + '.</div>' : x.pendiente === 'revertir' ? '' : x.ejec_at && j.ok ? '<div class="m" style="margin-top:6px">✅ ' + (j.accion === 'revertir' ? 'Precio regresado' : 'Aplicada') + ' por el sistema · ' + ocFecha(x.ejec_at) + '</div>' : j.error ? '<div class="warn" style="margin-top:6px">No se ejecutó: ' + esc(j.error) + '</div>' : ''; };
+    return h + (rows.length ? rows.map(x => { const viva = ult[x.idea_id] === x, e = x.pendiente === 'aplicar' ? ['APROBADA · EN COLA', 'cambio'] : x.pendiente === 'revertir' ? ['REVERSA EN COLA', 'cambio'] : x.estado === 'aprobada' && !viva && !x.ejec_at ? ['APROBADA · NO SE APLICÓ', 'n'] : EST[x.estado] || [x.estado, 'n'], precio = x.antes != null && x.nuevo != null, idea = S.t.pl_ideas.find(i => i.id === x.idea_id);
+      return `<div class="card"><div class="row"><div class="sp"><div><b>${esc(x.titulo || x.code || '')}</b></div><div class="m">${precio ? ocMon(x.antes, x.moneda) + ' → ' + ocMon(x.nuevo, x.moneda) + ' · ' : ''}${esc((S.t.app_users.find(u => u.email === x.por) || {}).name || x.por || '')} · ${ocFecha(x.at)}</div></div><span class="b ${e[1]}">${e[0]}</span></div>${x.nota ? `<div class="m" style="margin-top:6px">${esc(x.nota)}</div>` : ''}${ejec(x)}
+        ${viva && ocDecide() && x.estado !== 'revertida' ? `<div class="row" style="margin-top:8px">${x.estado === 'aprobada' && precio ? `<a class="btn" href="${esc(ocLiga(idea))}" target="_blank" rel="noopener">Abrir Motor de precios MGM</a><button data-ocmarca="${x.id}">La apliqué a mano</button>` : ''}<span class="sp"></span><button data-ocdes="${x.id}">${['ignorada', 'despues'].includes(x.estado) ? 'Reactivar' : 'Deshacer'}</button></div>` : ''}</div>`; }).join('') : '<div class="card empty">Todavía no hay decisiones registradas.</div>');
   }
   h += `<div class="row" style="margin-bottom:8px"><span class="m sp">Motor de precios MGM al ${ocFecha(act)}</span><select data-oct="1"><option value="">Todas las torres</option>${torres.map(t => `<option ${t === T ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>`;
   // --- tú contra la zona ---
@@ -873,7 +875,7 @@ VIEWS.ocupacion = () => {
   const dinero = () => `<div class="list">${L.slice().sort((a, b) => (a.occ30 - a.occ30z) - (b.occ30 - b.occ30z)).map(l => { const d = Math.round(l.occ30 - l.occ30z), col = d <= -15 ? '#a3301f' : d < 0 ? '#b06a00' : '#1f6b4a'; return `<div class="it"><div style="width:86px;flex:none"><b>${esc(l.code)}</b></div><div class="sp"><div class="ocbar"><i style="width:${Math.max(2, Math.round(l.occ30))}%;background:${col}"></i><b style="left:${Math.min(99, Math.round(l.occ30z))}%"></b></div><div class="m">${Math.round(l.occ30)}% ocupado · zona ${Math.round(l.occ30z)}%${l.revpar30 != null ? ' · gana ' + money(l.revpar30) + ' de ' + money(l.revpar30z) + ' por noche disponible' : ''}</div></div></div>`; }).join('')}</div>`;
   const bajo = L.filter(l => l.occ30 < l.occ30z).length;
   h += `<h2>Detalle</h2><div class="card aclist">${acRow('oc:dinero', { tit: 'Dónde se está quedando el dinero', sub: 'Ocupación a 30 días de cada depa contra su zona', pills: acPill(bajo + ' ABAJO DE LA ZONA', bajo ? 'mal' : 'ok'), body: dinero })}${acRow('oc:libres', { tit: 'Noches libres en el calendario', sub: 'Según las reservas de la app', pills: '', body: ocLibres })}</div>`;
-  h += `<div class="m" style="margin-top:10px">Ningún cambio se aplica solo: cada uno lo aprueba María, lo confirma una segunda vez y queda en el historial para poder revertirlo. La app no modifica el Motor de precios MGM.</div>`;
+  h += `<div class="m" style="margin-top:10px">Ningún cambio se aplica sin orden: cada uno lo aprueba María y lo confirma una segunda vez. Entonces el sistema lo aplica en el Motor de precios MGM y queda en el historial para poder revertirlo.</div>`;
   return h + ocModal();
 };
 function ocLibres() {
@@ -1954,16 +1956,21 @@ $('view').addEventListener('click', async e => {
     if (d.ocact === 'volver') { R.paso = 1; return render(); }
     if (!ocDecide()) { S.ocRev = null; toast('Solo María puede decidir cambios de precio.'); return render(); }
     if (d.ocact === 'aprobar') { R.paso = 2; return render(); }
-    if (d.ocact === 'confirmar') { R.paso = 3; return ocGuarda({ ...base, estado: 'aprobada' }, 'Decisión registrada'); }
-    if (d.ocact === 'aplicada') { const x = ocEstado()[i.id]; S.ocRev = null; if (x) { x.estado = 'aplicada'; render(); return done(DB.update('precio_decisiones', { id: x.id }, { estado: 'aplicada' }), 'precio_decisiones', 'Marcada como aplicada', 'cambio'); } return render(); }
+    if (d.ocact === 'confirmar') { R.paso = 3; return ocGuarda({ ...base, estado: 'aprobada', pendiente: ocAuto(base) ? 'aplicar' : null }, 'Orden registrada'); }
+    if (d.ocact === 'aplicada') { const x = ocEstado()[i.id]; S.ocRev = null; if (x) { x.estado = 'aplicada'; x.pendiente = null; render(); return done(DB.update('precio_decisiones', { id: x.id }, { estado: 'aplicada', pendiente: null }), 'precio_decisiones', 'Marcada como aplicada', 'cambio'); } return render(); }
     if (d.ocact === 'atendida') { S.ocRev = null; return ocGuarda({ ...base, estado: 'aplicada' }, 'Marcada como atendida'); }
     if (d.ocact === 'despues') { S.ocRev = null; return ocGuarda({ ...base, estado: 'despues' }, 'Regresa mañana'); }
     if (d.ocact === 'ignorar') { S.ocRev = null; return ocGuarda({ ...base, estado: 'ignorada' }, 'Ignorada · se puede reactivar en Historial'); }
     return; }
-  if (d.ocmarca) { if (!ocDecide()) return toast('Solo María.'); const x = S.t.precio_decisiones.find(r => r.id === d.ocmarca); if (!x) return; x.estado = 'aplicada'; render(); return done(DB.update('precio_decisiones', { id: x.id }, { estado: 'aplicada' }), 'precio_decisiones', 'Marcada como aplicada', 'cambio'); }
+  if (d.ocmarca) { if (!ocDecide()) return toast('Solo María.'); const x = S.t.precio_decisiones.find(r => r.id === d.ocmarca); if (!x) return; x.estado = 'aplicada'; x.pendiente = null; render(); return done(DB.update('precio_decisiones', { id: x.id }, { estado: 'aplicada', pendiente: null }), 'precio_decisiones', 'Marcada como aplicada', 'cambio'); }
   if (d.ocdes) { if (!ocDecide()) return toast('Solo María puede deshacer.'); if (!confirmTap(el)) return; const x = S.t.precio_decisiones.find(r => r.id === d.ocdes); if (!x) return;
     const precio = x.antes != null && x.nuevo != null, aplicada = x.estado === 'aplicada';
-    return ocGuarda({ idea_id: x.idea_id, code: x.code, titulo: x.titulo, antes: x.antes, nuevo: x.nuevo, moneda: x.moneda, estado: 'revertida', nota: precio && aplicada ? 'Regresa el precio base de ' + x.code + ' a ' + ocMon(x.antes, x.moneda) + ' en el Motor de precios MGM.' : 'Decisión deshecha; la idea vuelve a la lista.' }, precio && aplicada ? 'Deshecho · regresa el precio a ' + ocMon(x.antes, x.moneda) + ' en el Motor de precios MGM' : 'Deshecho'); }
+    const auto = ocAuto(x), rev = auto && aplicada;
+    // Si la orden aún no se aplicaba, se cancela ahí mismo: el sistema ya no la ejecuta.
+    if (x.pendiente) { x.pendiente = null; DB.update('precio_decisiones', { id: x.id }, { pendiente: null }); }
+    return ocGuarda({ idea_id: x.idea_id, code: x.code, titulo: x.titulo, antes: x.antes, nuevo: x.nuevo, moneda: x.moneda, estado: 'revertida', pendiente: rev ? 'revertir' : null,
+      nota: rev ? 'El sistema regresará el precio base de ' + x.code + ' a ' + ocMon(x.antes, x.moneda) + ' ' + OC_PASADA + '.' : precio && aplicada ? 'Regresa el precio base de ' + x.code + ' a ' + ocMon(x.antes, x.moneda) + ' en el Motor de precios MGM.' : 'Decisión deshecha; la idea vuelve a la lista.' },
+      rev ? 'Reversa pedida · el sistema regresa el precio a ' + ocMon(x.antes, x.moneda) : 'Deshecho'); }
   if (d.usrtab) { S.usrTab = d.usrtab; return render(); }
   if (d.servfalta) { S.f.serv.s = d.servfalta; S.f.serv.solo = 'falta'; return render(); }
   if (d.actog) { acTog(d.actog, !!d.acir); render(); if (d.acir) document.getElementById('ac-' + d.actog)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
