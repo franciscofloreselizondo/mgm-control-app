@@ -49,3 +49,12 @@ create table if not exists public.airbnb_cambios (
   tx_id uuid, tx_nueva boolean not null default false, tx_monto_antes numeric, deshecho timestamptz);
 
 alter table public.airbnb_mail add column if not exists ganas numeric;
+
+-- Varias cuentas de anfitrión (26-nov-2026, migración «airbnb_mov_por_cuenta»)
+--   En la sesión de María, Ingresos > «Ver como coanfitrión» da los cobros de Carlos Galarza (MD301, MD302) y de Paco (Lobby 1903).
+--   airbnb_mov.cuenta y airbnb_lotes.cuenta: 'maria' | 'carlos' | 'paco'. Cada carga reemplaza solo los movimientos de su cuenta.
+--   airbnb_boleto(origen, cuenta) crea el lote con su cuenta.
+--   Lobby 1903 se cobra en dólares: tools/airbnb_mov.py convierte con el tipo de cambio de cada depósito.
+--   Corrida 2: 277 movimientos de Carlos y 148 de Paco; 31 montos nuevos (MD301, MD302, Lobby 1903).
+alter table public.airbnb_mov add column if not exists cuenta text not null default 'maria';
+alter table public.airbnb_lotes add column if not exists cuenta text not null default 'maria';

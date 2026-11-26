@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
 """Convierte los CSV de Airbnb (Ingresos > Cobros recibidos / Cobros pendientes > Exportar CSV)
-al formato que recibe la base de MGM Control (airbnb_subir -> airbnb_cargar -> airbnb_aplicar).
+al formato que recibe la base de MGM Control (airbnb_boleto -> airbnb_subir -> airbnb_cargar -> airbnb_aplicar).
 
 Uso:  python3 tools/airbnb_mov.py salida.txt cobros_1.csv [cobros_2.csv ...] [airbnb_pending.csv]
 
-- Airbnb falla si se exporta un rango largo: bajar los cobros recibidos mes por mes.
-- El archivo de pendientes se reconoce por llamarse *pending*.
+- Una corrida por cuenta de anfitrión. En la sesión de María: Ingresos > «Ver como coanfitrión» cambia entre
+  María (cuenta 'maria'), Carlos Galarza (MD301 y MD302, cuenta 'carlos') y Paco (Lobby 1903, cuenta 'paco').
+- Airbnb falla si se exporta un rango largo con muchas reservas: en la cuenta de María bajar mes por mes.
+- El archivo de pendientes se reconoce por llamarse *pending*; inclúyelo siempre que la carga llegue a hoy.
 - La salida NO lleva nombres ni teléfonos de huéspedes. Un renglón por movimiento:
   fecha|grupo|tipo|codigo|depa|espacio|entrada|salida|estado|monto|bruto|pendiente
-- Control: reservación + impuestos + ajustes + retenciones + resolución = depósitos (payout).
+- Anuncios cobrados en dólares (Lobby 1903): cada depósito llega en pesos, así que cada depósito da su propio
+  tipo de cambio y con ese se convierten sus movimientos.
+- Control que imprime: reservación + impuestos + ajustes + retenciones + resolución = depósitos (payout).
 """
-import csv, io, sys, collections
+import csv, io, os, sys, collections
 
 # Nombre del anuncio en Airbnb -> código del depa en la app
-MAPA = {'L-1806': 'Lobby 1806', 'C-801': 'Central', 'Acervo': 'Acervo', '2005-A': 'LHA', '2005-B': 'LHB', 'LOFT Lobito': 'Q-1003'}
-PREFIJOS = [('Q-901', 'Q-901'), ('Neo-304', 'Neo-304'), ('MB1', 'LMB1'), ('MB2', 'MB2'), ('Elysian1309', 'Elyssian 1309'),
-            ('Elysian', 'Elyssian 1809'), ('LH -', 'LH')]
+MAPA = {'L-1806': 'Lobby 1806', 'L-1903': 'Lobby 1903', 'C-801': 'Central', 'Acervo': 'Acervo', '2005-A': 'LHA', '2005-B': 'LHB',
+        'LOFT Lobito': 'Q-1003'}
+PREFIJOS = [('Q-901', 'Q-901'), ('Neo-304', 'Neo-304'), ('MB1', 'LMB1'), ('MB2', 'MB2'), ('Mini 301', 'MD301'), ('Mini 302', 'MD302'),
+            ('Elysian1309', 'Elyssian 1309'), ('Elysian', 'Elyssian 1809'), ('LH -', 'LH')]
 GRUPO = {'Reservación': 'res', 'Impuestos liquidados como anfitrión': 'imp', 'Ajuste': 'aj', 'Ajuste de impuestos remitidos como anfitrión': 'aj',
          'Retención del IVA en México': 'ret', 'Retención del impuesto sobre la renta para México': 'ret',
          'Revocación de la retención del IVA para México': 'ret', 'Revocación de la retención del impuesto sobre la renta para México': 'ret',
@@ -47,22 +52,47 @@ def limpio(s): return (s or '').replace('|', ' ').replace('\n', ' ').strip()
 
 
 def main(salida, archivos):
-    lineas = []; tot = collections.defaultdict(float); cnt = collections.Counter()
+    lineas = []; tot = collections.defaultdict(float); cnt = collections.Counter(); fxs = []
     for f in archivos:
-        pend = 'pending' in f.lower()
+        pend = 'pending' in os.path.basename(f).lower()
         txt = open(f, 'rb').read().decode('utf-8-sig', errors='replace')
-        filas = list(csv.reader(io.StringIO(txt))); h = filas[0]
-        for r in filas[1:]:
-            d = dict(zip(h, r)); t = d.get('Tipo', ''); g = GRUPO.get(t, 'otros')
-            monto = num(d.get('Ingresos recibidos')) if g == 'payout' else num(d.get('Monto'))
+        crudo = list(csv.reader(io.StringIO(txt)))
+        filas = [dict(zip(crudo[0], r)) for r in crudo[1:]]
+        # En el CSV cada depósito (Payout) va seguido de sus movimientos.
+        grupos = []; cur = None
+        for d in filas:
+            if d.get('Tipo') == 'Payout': cur = {'mxn': num(d.get('Ingresos recibidos')), 'rows': []}; grupos.append(cur)
+            elif cur is not None: cur['rows'].append(d)
+        for g in grupos:
+            usd = [d for d in g['rows'] if d.get('Moneda') == 'USD']
+            if usd and len(usd) == len(g['rows']):
+                s = sum(num(d.get('Monto')) for d in usd)
+                if s:
+                    fx = g['mxn'] / s; fxs.append(fx); acum = 0.0
+                    for i, d in enumerate(usd):       # el último renglón absorbe el redondeo
+                        v = round(num(d.get('Monto')) * fx, 2) if i < len(usd) - 1 else round(g['mxn'] - acum, 2)
+                        acum += v; d['_mxn'] = v; d['_fx'] = fx
+        fxm = sorted(fxs)[len(fxs) // 2] if fxs else None
+        for d in filas:
+            t = d.get('Tipo', ''); g = GRUPO.get(t, 'otros')
+            if g == 'payout': monto = num(d.get('Ingresos recibidos'))
+            elif '_mxn' in d: monto = d['_mxn']
+            elif d.get('Moneda') == 'USD':            # pendiente en dólares: se estima con el tipo de cambio mediano
+                if not fxm: sys.exit('movimiento en USD sin depósito para convertir: ' + f)
+                monto = round(num(d.get('Monto')) * fxm, 2); d['_fx'] = fxm
+            else: monto = num(d.get('Monto'))
+            bruto = num(d.get('Ingresos brutos')) * d.get('_fx', 1.0)
             esp = limpio(d.get('Espacio', '').split('|')[0])[:40]
             lineas.append('|'.join([iso(d.get('Fecha')), g, limpio(t)[:70], limpio(d.get('Código de confirmación')), depa(esp), esp,
                                     iso(d.get('Fecha de inicio')), iso(d.get('Fecha de finalización')), limpio(d.get('Estado de la reservación')),
-                                    '%.2f' % monto, ('%.2f' % num(d.get('Ingresos brutos'))) if g == 'res' else '', '1' if pend else '0']))
+                                    '%.2f' % monto, ('%.2f' % bruto) if g == 'res' else '', '1' if pend else '0']))
             k = ('pend_' if pend else '') + g; tot[k] += monto; cnt[k] += 1
     open(salida, 'w').write('\n'.join(lineas) + '\n')
-    print('renglones', len(lineas))
+    print('renglones', len(lineas), '| bytes', os.path.getsize(salida))
     for k in sorted(tot): print('%-12s %5d %14.2f' % (k, cnt[k], tot[k]))
+    comp = sum(v for k, v in tot.items() if k in ('res', 'imp', 'aj', 'ret', 'resol', 'otros'))
+    print('control: componentes %.2f vs depósitos %.2f' % (comp, tot.get('payout', 0.0)))
+    if fxs: print('tipo de cambio por depósito: %.3f a %.3f (%d depósitos)' % (min(fxs), max(fxs), len(fxs)))
     desconocidos = sum(1 for l in lineas if l.split('|')[4] == '?')
     if desconocidos: print('OJO: %d renglones con un anuncio que no está en MAPA' % desconocidos)
 
