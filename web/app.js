@@ -32,9 +32,9 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '87';
+const APP_VER = '88';
 const TABLES = ['quotes', 'properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
-  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'pnl_beta', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log', 'pl_mensual', 'pl_listings', 'pl_ideas', 'precio_decisiones'];
+  'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log', 'pl_mensual', 'pl_listings', 'pl_ideas', 'precio_decisiones'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
   'Reparaciones menores', 'Pintura', 'Limpieza de muebles', 'Mantenimiento AC', 'Gas', 'Luz', 'Internet', 'Agua', 'Predial', 'Otro'];
 const CAT_INGRESO = ['Ingreso por reserva', 'Otros ingresos'];
@@ -73,6 +73,7 @@ function supaDB() {
       const r = await sb.storage.from('comprobantes').upload(path, blob, { contentType: 'image/jpeg' });
       if (r.error) throw new Error(r.error.message); return path;
     },
+    async uploadFile(path, blob, type) { const r = await sb.storage.from('comprobantes').upload(path, blob, { contentType: type, upsert: true }); if (r.error) throw new Error(r.error.message); return path; },
     async setAvatar(img) { return e(await sb.rpc('set_my_avatar', { img })); },
     async touch() { try { await sb.rpc('touch_me'); } catch (_) {} },
     async photoUrl(path) { const r = await sb.storage.from('comprobantes').createSignedUrl(path, 3600); return r.data ? r.data.signedUrl : ''; },
@@ -108,6 +109,7 @@ function demoDB() {
     async remove(t, match) { T[t] = T[t].filter(r => !hit(r, match)); save(); return null; },
     async upsert(t, row, pk) { const i = T[t].findIndex(r => pk.every(k => r[k] === row[k])); if (i >= 0) Object.assign(T[t][i], row); else T[t].push({ ...row }); save(); return null; },
     upload(blob) { return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); }); },
+    uploadFile(path, blob) { return this.upload(blob); },
     async setAvatar(img) { const u = T.app_users.find(x => x.role === role); if (u) { u.avatar = img; save(); } return null; },
     async photoUrl(path) { return path; },
     subscribe(_c, onState) { onState(true); }
@@ -168,18 +170,19 @@ async function deshacer() {
   finally { undoing = false; }
   toast('Deshecho: ' + u.label);
 }
-function ins(t, row, msg) { const k = keyOf(row); pushUndo(t, [k ? { a: 'del', t, m: k } : { a: 'del', t, m: { ...row } }], msg); S.t[t].push(row); render(); return done(DB.insert(t, row), t, msg, 'alta'); }
+let REV = 0; // sube con cada cambio de datos: sirve de sello para cálculos guardados (tendencia del P&L)
+function ins(t, row, msg) { REV++; const k = keyOf(row); pushUndo(t, [k ? { a: 'del', t, m: k } : { a: 'del', t, m: { ...row } }], msg); S.t[t].push(row); render(); return done(DB.insert(t, row), t, msg, 'alta'); }
 function upd(t, match, patch, msg) {
-  const ops = []; S.t[t].forEach(r => { if (hit(r, match)) { ops.push({ a: 'upd', t, m: keyOf(r) || match, p: Object.fromEntries(Object.keys(patch).map(k => [k, r[k] === undefined ? null : r[k]])) }); Object.assign(r, patch); } });
+  REV++; const ops = []; S.t[t].forEach(r => { if (hit(r, match)) { ops.push({ a: 'upd', t, m: keyOf(r) || match, p: Object.fromEntries(Object.keys(patch).map(k => [k, r[k] === undefined ? null : r[k]])) }); Object.assign(r, patch); } });
   pushUndo(t, ops, msg); render(); return done(DB.update(t, match, patch), t, msg, 'cambio');
 }
-function del(t, match, msg) { pushUndo(t, S.t[t].filter(r => hit(r, match)).map(r => ({ a: 'ins', t, row: JSON.parse(JSON.stringify(r)) })), msg); S.t[t] = S.t[t].filter(r => !hit(r, match)); render(); return done(DB.remove(t, match), t, msg, 'borrado'); }
+function del(t, match, msg) { REV++; pushUndo(t, S.t[t].filter(r => hit(r, match)).map(r => ({ a: 'ins', t, row: JSON.parse(JSON.stringify(r)) })), msg); S.t[t] = S.t[t].filter(r => !hit(r, match)); render(); return done(DB.remove(t, match), t, msg, 'borrado'); }
 function ups(t, row, pk, msg) {
-  const i = S.t[t].findIndex(r => pk.every(k => r[k] === row[k])), m = Object.fromEntries(pk.map(k => [k, row[k]]));
+  REV++; const i = S.t[t].findIndex(r => pk.every(k => r[k] === row[k])), m = Object.fromEntries(pk.map(k => [k, row[k]]));
   pushUndo(t, [i >= 0 ? { a: 'upd', t, m, p: Object.fromEntries(Object.keys(row).map(k => [k, S.t[t][i][k] === undefined ? null : S.t[t][i][k]])) } : { a: 'del', t, m }], msg);
   if (i >= 0) Object.assign(S.t[t][i], row); else S.t[t].push(row); render(); return done(DB.upsert(t, row, pk), t, msg, 'alta_o_cambio');
 }
-async function reload(t) { const r = await DB.load(t); if (r.rows) { S.t[t] = r.rows; S.falta?.delete(t); render(); } }
+async function reload(t) { const r = await DB.load(t); if (r.rows) { REV++; S.t[t] = r.rows; S.falta?.delete(t); render(); } }
 
 // ---------- sesión ----------
 async function start() {
@@ -216,7 +219,7 @@ async function boot(email) {
   const lento = setTimeout(() => { if ($('view').textContent.trim() === 'Cargando…') $('view').innerHTML = '<div class="card" style="text-align:center"><b>Está tardando en cargar</b><div class="m" style="margin:8px 0 12px">Puede ser la señal o una versión vieja guardada en el teléfono.</div><div class="row" style="gap:8px;justify-content:center"><button onclick="location.reload()">Reintentar</button><button class="pri" onclick="window.__mgmLimpiar && window.__mgmLimpiar()">Limpiar y recargar</button></div></div>'; AN.evento('carga_lenta'); }, 15000);
   const res = await Promise.all(TABLES.map(t => DB.load(t)));
   clearTimeout(lento);
-  S.falta = new Set(); TABLES.forEach((t, i) => { S.t[t] = res[i].rows || []; if (!res[i].rows) S.falta.add(t); });
+  REV++; S.falta = new Set(); TABLES.forEach((t, i) => { S.t[t] = res[i].rows || []; if (!res[i].rows) S.falta.add(t); });
   S.me = S.t.app_users.find(u => (u.email || '').toLowerCase() === email.toLowerCase()) || null;
   if (S.me && DB.touch) DB.touch();
   render();
@@ -623,8 +626,8 @@ VIEWS.hoy = () => {
   h += `<h2>${R.length ? R.length + ' por resolver · en orden de urgencia' : 'Por resolver'}</h2>`;
   h += R.length ? R.map(x => `<div class="card row hoyr"><div class="hrs ${x.h <= 24 ? 'mal' : 'med'}"><b>${hrsTxt(x.h)}</b><span>${x.h <= 0 ? 'urge' : 'restan'}</span></div><div class="sp"><div><b>${esc(x.t)}</b></div><div class="m">${esc(x.s)}</div></div>${x.b}</div>`).join('') : '<div class="card empty">Todo en orden ✓</div>';
   if (isSuper()) { const L0 = (S.t.sync_log || []).filter(x => !x.seen).sort((a, b) => a.at < b.at ? 1 : -1), L = L0.filter(x => x.action !== 'claudio'), C = L0.filter(x => x.action === 'claudio');
-    // Lo que Claudio registró por WhatsApp: mismo patrón que los cambios de Airbnb (se queda hasta marcarlo visto)
-    if (C.length) h += `<h2>💬 Claudio registró por WhatsApp (${C.length})</h2>` + C.slice(0, 15).map(x => `<div class="card row"><div class="sp"><div>${x.property_code ? `<span class="dp">${esc(x.property_code)}</span> ` : ''}<span class="b">CLAUDIO</span> <span class="m">${esc(new Date(x.at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</span></div><div class="m">${esc(x.detail)}</div></div><button data-synok="${x.id}">Visto</button></div>`).join('') + (C.length > 1 ? `<div class="row" style="margin-bottom:8px"><span class="sp"></span><button data-synok="claudio">Marcar todo visto</button></div>` : '');
+    // Lo que Frankie (el asistente de WhatsApp; internamente 'claudio') registró: mismo patrón que los cambios de Airbnb (se queda hasta marcarlo visto)
+    if (C.length) h += `<h2>💬 Frankie registró por WhatsApp (${C.length})</h2>` + C.slice(0, 15).map(x => `<div class="card row"><div class="sp"><div>${x.property_code ? `<span class="dp">${esc(x.property_code)}</span> ` : ''}<span class="b">FRANKIE</span> <span class="m">${esc(new Date(x.at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}</span></div><div class="m">${esc(x.detail)}</div></div><button data-synok="${x.id}">Visto</button></div>`).join('') + (C.length > 1 ? `<div class="row" style="margin-bottom:8px"><span class="sp"></span><button data-synok="claudio">Marcar todo visto</button></div>` : '');
     if (L.length) h += `<h2>🔄 Cambios de Airbnb (${L.length})</h2>` + L.slice(0, 15).map(x => `<div class="card row"><div class="sp"><div><span class="dp">${esc(x.property_code)}</span> <span class="b ${x.action === 'baja' ? 'baja' : ''}">${x.action === 'alta' ? 'NUEVA' : x.action === 'baja' ? 'CANCELADA' : 'CAMBIO'}</span></div><div class="m">${esc(x.detail)}</div></div>${x.reservation_id ? `<button class="pri" data-res="${x.reservation_id}">Abrir</button>` : ''}<button data-synok="${x.id}">Visto</button></div>`).join('') + (L.length > 1 ? `<div class="row" style="margin-bottom:8px"><span class="sp"></span><button data-synok="*">Marcar todo visto</button></div>` : ''); }
   if (isSuper()) { const pi = ocPend().slice(0, 3), top = pi.length ? [] : ocDatos(7).filter(x => x.libres.length).sort((a, b) => b.libres.length - a.libres.length).slice(0, 3);
     if (pi.length) h += `<div class="card hoyp"><div class="row"><b class="sp">${pi.length} prioridades para ocupar más</b><button class="lnk" data-go="ocupacion">Ver todas</button></div>${pi.map((i, n) => `<div class="it"><span class="n">${n + 1}</span><div class="sp"><div><b>${esc(i.titulo)}</b></div><div class="m">${i.antes != null && i.nuevo != null ? 'De ' + ocMon(i.antes, i.moneda) + ' a ' + ocMon(i.nuevo, i.moneda) + (i.vence ? ' · vence ' + fmt(i.vence) : '') : esc((i.detalle || '').split('.')[0])}</div></div><button data-ochoy="${esc(i.id)}">Revisar</button></div>`).join('')}</div>`;
@@ -694,7 +697,7 @@ VIEWS.calendario = () => {
 };
 
 // ---------- P&L (estado de resultados para dueños) ----------
-// Supuestos tomados de las respuestas de María (settings.pnl_config): % de gestión, tarifa de limpieza y lavandería por salida, cajones e IVA.
+// Supuestos que acordó María (settings.pnl_config): % de gestión, tarifa de limpieza y lavandería por salida, cajones e IVA.
 const plCfg = () => ({ gestion: { def: 15 }, limpieza: {}, cajon_ing: { monto: 580, codes: [] }, cajon_renta: { monto: 500, codes: [] }, iva: 8, ...(setting('pnl_config', null) || {}) });
 const plRango = () => { const hoy = today(); return [S.plF || hoy.slice(0, 7) + '-01', S.plT || hoy]; };
 const plPct = (a, b) => b ? Math.round(a / b * 1000) / 10 : 0;
@@ -749,26 +752,85 @@ function plLectura(D) { const { P, B, f, t, n } = D, T = P.T, U = B.T, L = [], d
   const av = []; if (T.sinMonto) av.push(`${T.sinMonto} ${T.sinMonto === 1 ? 'reserva del periodo no tiene' : 'reservas del periodo no tienen'} monto capturado, por lo que el ingreso mostrado es menor al real`);
   if (P.sinTarifa.length) av.push(`falta la tarifa de limpieza y lavandería de ${P.sinTarifa.join(', ')}, así que sus salidas se cuentan en $0`); if (T.sinFoto) av.push(`${T.sinFoto} de ${P.GAS.length} gastos no tienen comprobante adjunto`);
   if (av.length) L.push('Alcance de la información: ' + av.join('; ') + '.'); return L; }
+// Tendencia por mes (ventana de hasta 12 meses): una pasada de plCalc por mes. El mes en curso va «a hoy» para que su barra cuadre con las tarjetas.
+let PLM = { rev: -1, m: new Map() };
+function plSerie(codes) {
+  const hoy = today(), ymH = hoy.slice(0, 7), [f, t] = plRango(), ymT = t.slice(0, 7), fin = ymT > ymH || ymT < stMes(ymH, -11) ? ymT : ymH, M = [];
+  if (PLM.rev !== REV) PLM = { rev: REV, m: new Map() };
+  for (let i = 11; i >= 0; i--) { const ym = stMes(fin, -i), a = ym + '-01', sig = stMes(ym, 1) + '-01', z = ym === ymH && t <= hoy ? add(hoy, 1) : sig, b = add(z, -1), k = a + z + codes.join();
+    if (!PLM.m.has(k)) { const T = plCalc(a, z, codes).T; PLM.m.set(k, { ing: Math.max(0, T.ing), egr: Math.max(0, T.egr), neta: T.neta, vacio: !T.ingRes && !T.otros && !T.gastos && !T.nSal }); }
+    M.push({ ym, a, b, ...PLM.m.get(k), hoy: z !== sig, sel: a <= t && b >= f }); }
+  while (M.length > 6 && M[0].vacio) M.shift(); // sin meses vacíos al inicio (sin reservas, salidas ni gastos reales; el cajón fijo no cuenta)
+  return M;
+}
+const plK = v => { const a = Math.abs(v), s = v < 0 ? '-$' : '$'; return a >= 1e6 ? s + Math.round(a / 1e5) / 10 + 'M' : a >= 1e4 ? s + Math.round(a / 1e3) + 'k' : a >= 1e3 ? s + Math.round(a / 100) / 10 + 'k' : s + Math.round(a); };
+const plDia = s => +s.slice(8) + ' ' + MESES[+s.slice(5, 7) - 1];
+// Gráfica: una barra por mes cuyo alto es el ingreso, con los gastos abajo (cobre) y lo que queda arriba (verde); la línea es la utilidad neta. Un solo eje, en pesos.
+function plGraf(M) {
+  const W = 360, H = 180, L = 40, R = 8, T = 12, B = 24, n = M.length, mx = Math.max(1, ...M.map(m => Math.max(m.ing, m.egr))), mn = Math.min(0, ...M.map(m => m.neta));
+  const r0 = (mx - mn) / 3, p = Math.pow(10, Math.floor(Math.log10(r0))), q = r0 / p, paso = (q <= 1 ? 1 : q <= 2 ? 2 : q <= 2.5 ? 2.5 : q <= 5 ? 5 : 10) * p;
+  const top = Math.ceil(mx / paso) * paso, bot = Math.floor(mn / paso) * paso, y = v => T + (top - v) / (top - bot) * (H - T - B), band = (W - L - R) / n, bw = Math.min(24, band * .6), cx = i => L + band * (i + .5), y0 = y(0), r1 = v => Math.round(v * 10) / 10;
+  const punta = (x, ya, yb, cls, op) => { if (yb - ya < .8) return ''; const r = Math.min(4, yb - ya, bw / 2); return `<path class="${cls}"${op ? ` opacity="${op}"` : ''} d="M${r1(x)},${r1(yb)}V${r1(ya + r)}Q${r1(x)},${r1(ya)} ${r1(x + r)},${r1(ya)}H${r1(x + bw - r)}Q${r1(x + bw)},${r1(ya)} ${r1(x + bw)},${r1(ya + r)}V${r1(yb)}Z"/>`; };
+  const caja = (x, ya, yb, cls) => yb - ya < .8 ? '' : `<rect class="${cls}" x="${r1(x)}" y="${r1(ya)}" width="${r1(bw)}" height="${r1(yb - ya)}"/>`;
+  let g = '';
+  for (let v = bot; v <= top + paso / 2; v += paso) g += `<line class="${Math.abs(v) < paso / 1e6 ? 'eje' : 'reja'}" x1="${L}" x2="${W - R}" y1="${r1(y(v))}" y2="${r1(y(v))}"/><text class="tk" x="${L - 5}" y="${r1(y(v) + 3.5)}" text-anchor="end">${plK(Math.abs(v) < paso / 1e6 ? 0 : v)}</text>`;
+  M.forEach((m, i) => { const x = cx(i) - bw / 2, gi = Math.min(m.egr, m.ing), u = m.ing - gi, ex = m.egr - gi, yg = y(gi), yi = y(m.ing), ye = y(m.egr); let s = '';
+    if (gi > 0) s += u > 0 || ex > 0 ? caja(x, yg, y0, 'gas') : punta(x, yg, y0, 'gas');
+    if (u > 0) s += punta(x, yi, gi > 0 ? yg - 2 : y0, 'uti');
+    if (ex > 0) s += punta(x, ye, gi > 0 ? yi - 2 : y0, 'gas', .4);
+    g += `<g${m.sel ? '' : ' opacity=".3"'}>${s}</g><text class="mx${m.sel ? ' on' : ''}" x="${r1(cx(i))}" y="${H - 8}" text-anchor="middle">${MESES[+m.ym.slice(5) - 1]}</text>`; });
+  const pts = M.map((m, i) => r1(cx(i)) + ',' + r1(y(m.neta))).join(' ');
+  g += `<polyline class="halo" points="${pts}"/><polyline class="ln" points="${pts}"/>` + M.map((m, i) => `<circle class="pt" cx="${r1(cx(i))}" cy="${r1(y(m.neta))}" r="4"/>`).join('');
+  g += M.map((m, i) => `<rect class="hit" x="${r1(L + band * i)}" y="0" width="${r1(band)}" height="${H}" data-plmes="${m.a}|${m.b}"><title>${fmtMes(m.ym)}${m.hoy ? ' (a hoy)' : ''}: ingresos ${money(Math.round(m.ing))}, gastos ${money(Math.round(m.egr))}, utilidad neta ${money(Math.round(m.neta))}</title></rect>`).join('');
+  return `<svg class="plsvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tendencia por mes de ingresos, gastos y utilidad neta">${g}</svg>`;
+}
+// Pendientes reales del P&L para la selección y el periodo: salen de los datos, no de una lista fija.
+function plPend(D) { const C = D.P.C, T = D.P.T, sinT = D.codes.filter(c => C.limpieza[c] == null), L = [];
+  if (sinT.length) L.push([`Falta la tarifa de limpieza de ${sinT.join(', ')}`, 'Mientras tanto sus salidas cuentan en $0.', '']);
+  if (T.sinMonto) L.push([`${T.sinMonto} ${T.sinMonto === 1 ? 'reserva sin monto' : 'reservas sin monto'}`, 'El ingreso mostrado es menor al real.', 'pl:res']);
+  if (T.sinFoto) L.push([`${T.sinFoto} de ${D.P.GAS.length} gastos sin comprobante`, 'No salen en el anexo del PDF.', 'pl:gas']);
+  return L; }
+function plSupuestos(D) {
+  const C = plCfg(), porT = {}; for (const p of props()) if (C.limpieza[p.code] != null) (porT[C.limpieza[p.code]] ||= []).push(p.code);
+  const lista = L => !L.length ? '<span class="m">—</span>' : L.length > 4 ? `<details><summary>${L.length} depas</summary><div class="m">${esc(L.join(' · '))}</div></details>` : `<span class="m">${esc(L.join(' · '))}</span>`;
+  const exc = Object.entries(C.gestion).filter(x => x[0] !== 'def').map(([c, p]) => `${esc(c)} ${p}%`).join(' · '), fila = (t, x) => `<div class="plsu"><b>${t}</b><div>${x}</div></div>`, sub = (t, L) => `<div class="plsr"><b>${t}</b>${lista(L)}</div>`;
+  let h = '<h2 style="margin-top:6px">Supuestos del cálculo</h2><div class="card">' + fila('Ingreso por reservas', 'Airbnb: el neto que deposita, ya sin su comisión ni las retenciones de IVA e ISR. Reservas directas: el monto capturado. Se reparte por noches ocupadas dentro del periodo.')
+    + fila('Gestión MGM', `${C.gestion.def}% del ingreso por reservas.${exc ? ' Excepciones: ' + exc + '.' : ''}`)
+    + fila('Limpieza y lavandería', 'Tarifa acordada por salida (no la nómina real).' + Object.entries(porT).sort((a, b) => b[1].length - a[1].length || b[0] - a[0]).map(([m, L]) => sub(money(+m), L)).join(''))
+    + fila('Cajones de estacionamiento', sub(`Reciben ${money(C.cajon_ing.monto)} al mes`, C.cajon_ing.codes || []) + sub(`Pagan ${money(C.cajon_renta.monto)} al mes`, C.cajon_renta.codes || []))
+    + fila('IVA a cargo del dueño', `${C.iva}% de la utilidad antes de impuestos de cada depa.`) + '</div>';
+  const P = plPend(D), donde = `${esc(stTitulo())} · ${plDia(D.f)} – ${plDia(D.t)} ${D.t.slice(0, 4)}`;
+  h += `<h2>Pendientes${P.length ? ' (' + P.length + ')' : ''}</h2><div class="card"><div class="m">${donde}</div>` + (P.length ? P.map(([t, s, go]) => `<div class="plsu row"><div class="sp"><b>${esc(t)}</b><div class="m">${s}</div></div>${go ? `<button class="chip" data-plpend="${go}">Ver ›</button>` : ''}</div>`).join('') : '<div style="margin-top:6px">Sin pendientes: cada depa tiene su tarifa, las reservas tienen monto y los gastos tienen comprobante.</div>') + '</div>';
+  return h + '<div class="m" style="margin-top:10px">¿Cambió algún supuesto? Pídeselo a Frankie por WhatsApp y queda registrado.</div>';
+}
 VIEWS.pnl = () => {
   if (!isSuper()) return '<div class="empty">Solo María y Paco.</div>';
-  const tab = S.plTab || 'pl'; let h = `<div class="seg" style="margin-bottom:10px;display:flex"><button class="sp ${tab === 'pl' ? 'on' : ''}" data-pltab="pl">Estado de resultados</button><button class="sp ${tab === 'cfg' ? 'on' : ''}" data-pltab="cfg">Supuestos y respuestas</button></div>`;
-  if (tab === 'cfg') { const C = plCfg(); return h + `<div class="card"><b>Supuestos que usa el P&L</b><div class="m" style="margin-top:6px">Gestión MGM: ${C.gestion.def}% de los ingresos por reservas${Object.entries(C.gestion).filter(x => x[0] !== 'def').map(([c, p]) => ` · ${esc(c)} ${p}%`).join('')}.</div><div class="m" style="margin-top:4px">Limpieza y lavandería por salida: ${Object.entries(C.limpieza).map(([c, p]) => `${esc(c)} ${money(p)}`).join(' · ') || 'sin tarifas'}.</div><div class="m" style="margin-top:4px">Cajón: reciben ${money(C.cajon_ing.monto)} al mes ${(C.cajon_ing.codes || []).join(', ') || '—'}; pagan ${money(C.cajon_renta.monto)} al mes ${(C.cajon_renta.codes || []).join(', ') || '—'}.</div><div class="m" style="margin-top:4px">IVA a cargo del dueño: ${C.iva}% de la utilidad antes de impuestos. El ingreso de cada reserva se reparte por noches ocupadas en cada mes.</div></div>` + pnlForm(); }
-  const D = plDatos(), { P, B, f, t } = D, T = P.T, U = B.T, G = stGrupos(), sel = stSel(), torres = [...new Set(props().map(p => p.building || 'Sin edificio'))].sort(), o = (tp, v, l) => `<option value="${tp}|${esc(v)}" ${sel.tipo === tp && sel.val === v ? 'selected' : ''}>${esc(l)}</option>`;
+  const tab = S.plTab || 'pl', D = plDatos(); let h = `<div class="seg" style="margin-bottom:10px;display:flex"><button class="sp ${tab === 'pl' ? 'on' : ''}" data-pltab="pl">Estado de resultados</button><button class="sp ${tab === 'cfg' ? 'on' : ''}" data-pltab="cfg">Supuestos y pendientes</button></div>`;
+  if (tab === 'cfg') return h + plSupuestos(D);
+  const { P, B, f, t } = D, T = P.T, U = B.T, G = stGrupos(), sel = stSel(), torres = [...new Set(props().map(p => p.building || 'Sin edificio'))].sort(), o = (tp, v, l) => `<option value="${tp}|${esc(v)}" ${sel.tipo === tp && sel.val === v ? 'selected' : ''}>${esc(l)}</option>`;
   const hoy = today(), ym = hoy.slice(0, 7), rap = [['Este mes', ym + '-01', hoy], ['Mes pasado', stMes(ym, -1) + '-01', add(ym + '-01', -1)], ['3 meses', stMes(ym, -2) + '-01', hoy], ['Este año', ym.slice(0, 4) + '-01-01', hoy]];
   h += `<div class="stfix"><select data-stsel="1" style="width:100%"><option value="todo|">Toda la gestión (${props().length} depas)</option><optgroup label="Torre">${torres.map(x => o('torre', x, x)).join('')}</optgroup>${Object.keys(G).length ? `<optgroup label="Grupo">${Object.keys(G).sort().map(g => o('grupo', g, g)).join('')}</optgroup>` : ''}<optgroup label="Depa">${props().map(p => o('depa', p.code, p.code)).join('')}</optgroup></select>
     <div class="row" style="margin-top:8px;gap:6px"><input type="date" data-plf="1" value="${f}" class="sp" aria-label="Desde"><span class="m">a</span><input type="date" data-plt="1" value="${t}" class="sp" aria-label="Hasta"></div>
     <div class="row" style="margin-top:8px;gap:6px">${rap.map(([l, a, b]) => `<button class="chip ${f === a && t === b ? 'pri' : ''}" data-plr="${a}|${b}">${l}</button>`).join('')}</div></div>`;
-  const k = (c, v, l, x) => `<div class="kpi ${c ? 'st-k-' + c : ''}"><div class="v">${v}</div><div class="l">${l}</div>${x ? `<div class="m" style="font-size:11px">${x}</div>` : ''}</div>`, dl = (a, b) => b ? (a >= b ? '▲ ' : '▼ ') + Math.abs(Math.round((a - b) / Math.abs(b) * 100)) + '% vs anterior' : '';
-  h += `<div class="kpis" style="grid-template-columns:repeat(2,1fr);margin-top:10px">` + k('', money(Math.round(T.ing)), 'Ingresos', dl(T.ing, U.ing)) + k('', money(Math.round(T.egr)), 'Gastos', dl(T.egr, U.egr)) + k(T.antes >= 0 ? 'ok' : 'mal', money(Math.round(T.antes)), 'Utilidad antes de impuestos', plPct(T.antes, T.ing) + '% de margen') + k(T.neta >= 0 ? 'ok' : 'mal', money(Math.round(T.neta)), 'Utilidad neta', dl(T.neta, U.neta))
-    + k('', T.ocup + '%', 'Ocupación', T.noches + ' de ' + T.disp + ' noches') + k('', T.tarifa == null ? '—' : money(Math.round(T.tarifa)), 'Tarifa promedio por noche', '') + k('', T.revpar == null ? '—' : money(Math.round(T.revpar)), 'RevPAR', 'ingreso por noche disponible') + k('', (Math.round(T.estancia * 10) / 10) + ' noches', 'Estancia promedio', P.RES.length + ' reservas') + '</div>';
+  const M = plSerie(D.codes), uno = M.find(m => m.a === f && m.b === t), hoyM = M.find(m => m.hoy), per = uno ? fmtMes(uno.ym) + (uno.hoy ? ' · a hoy' : '') : plDia(f) + ' – ' + plDia(t) + ' ' + t.slice(0, 4);
+  h += `<div class="card plg"><div class="row"><b class="sp">Tendencia por mes</b><span class="m">${MESES[+M[0].ym.slice(5) - 1]}${M[0].ym.slice(0, 4) !== M[M.length - 1].ym.slice(0, 4) ? ' ' + M[0].ym.slice(0, 4) : ''} – ${MESES[+M[M.length - 1].ym.slice(5) - 1]} ${M[M.length - 1].ym.slice(0, 4)}</span></div>
+    <div class="plleg"><span><i style="background:var(--cobre)"></i>Gastos</span><span><i style="background:var(--acc)"></i>Utilidad antes de impuestos</span><span><i class="ln"></i>Utilidad neta</span></div>${plGraf(M)}
+    <div class="m" style="font-size:12px">La barra completa es el ingreso. Toca un mes para ver solo ese mes.${hoyM ? ' ' + MESES_L[+hoyM.ym.slice(5) - 1] + ' va al día de hoy.' : ''}</div>
+    <details class="plgt"><summary>Ver en tabla</summary><table class="pltab"><tr class="h"><td>Mes</td><td class="r">Ingresos</td><td class="r">Gastos</td><td class="r">Utilidad neta</td></tr>${M.map(m => `<tr><td><button class="lnk" data-plmes="${m.a}|${m.b}">${MESES[+m.ym.slice(5) - 1]} ${m.ym.slice(2, 4)}${m.hoy ? ' (a hoy)' : ''}</button></td><td class="r">${money(Math.round(m.ing))}</td><td class="r">${money(Math.round(m.egr))}</td><td class="r"><b>${money(Math.round(m.neta))}</b></td></tr>`).join('')}</table></details></div>`;
+  h += `<div class="row" style="margin:12px 2px 8px;gap:8px"><b class="sp">${per}</b>${S.plPrev ? `<button class="chip" data-plback="1">← ${plDia(S.plPrev[0])} – ${plDia(S.plPrev[1])}</button>` : ''}</div>`;
+  // Tarjetas: siguen al periodo (o al mes tocado en la gráfica), comparan contra el periodo anterior y cada una lleva a su detalle.
+  const dl = (a, b, sube = true) => { if (!b) return ''; const p = Math.round((a - b) / Math.abs(b) * 100); if (Math.abs(p) > 300) return ''; return `<span class="${!p ? '' : (p > 0) === sube ? 'st-ok' : 'st-mal'}">${p >= 0 ? '▲' : '▼'} ${Math.abs(p)}%</span> vs anterior`; };
+  const k = (c, v, l, x, go) => `<button class="kpi ${c ? 'st-k-' + c : ''}" ${go[0] === '#' ? `data-plir="${go.slice(1)}"` : `data-actog="${go}" data-acir="1"`}><div class="v">${v}</div><div class="l">${l} ›</div>${x ? `<div class="m" style="font-size:11px">${x}</div>` : ''}</button>`, porDepa = P.deps.length > 1 ? 'pl:depas' : 'pl:res';
+  h += `<div class="kpis" style="grid-template-columns:repeat(2,1fr)">` + k('', money(Math.round(T.ing)), 'Ingresos', dl(T.ing, U.ing), 'pl:res') + k('', money(Math.round(T.egr)), 'Gastos', dl(T.egr, U.egr, false), 'pl:gas') + k(T.antes >= 0 ? 'ok' : 'mal', money(Math.round(T.antes)), 'Utilidad antes de impuestos', plPct(T.antes, T.ing) + '% de margen', '#plER') + k(T.neta >= 0 ? 'ok' : 'mal', money(Math.round(T.neta)), 'Utilidad neta', dl(T.neta, U.neta), '#plER')
+    + k('', T.ocup + '%', 'Ocupación', T.noches + ' de ' + T.disp + ' noches', porDepa) + k('', T.tarifa == null ? '—' : money(Math.round(T.tarifa)), 'Tarifa promedio por noche', T.tarifa == null || U.tarifa == null ? '' : dl(T.tarifa, U.tarifa), porDepa) + k('', T.revpar == null ? '—' : money(Math.round(T.revpar)), 'RevPAR', 'ingreso por noche disponible', porDepa) + k('', (Math.round(T.estancia * 10) / 10) + ' noches', 'Estancia promedio', P.RES.length + ' reservas', 'pl:res') + '</div>';
   h += `<div class="row" style="margin:6px 0 2px;gap:6px"><button class="pri sp" data-plpdf="1">PDF con comprobantes</button>${S.plPdf ? `<button data-pldl="1">Descargar</button><button data-plshare="1">Enviar</button>` : ''}</div>${S.plPdf ? `<div class="m">Listo: ${esc(S.plPdf.name)}. «Enviar» abre correo, WhatsApp o lo que elijas con el PDF adjunto.</div>` : ''}`;
-  h += `<h2>Estado de resultados · ${esc(stTitulo())}</h2><div class="card"><table class="pltab">${plRenglones(P).map(([l, m, tp]) => tp === 'h' ? `<tr class="h"><td colspan="3">${l}</td></tr>` : `<tr class="${tp}"><td>${esc(l)}</td><td class="r">${m < 0 ? '(' + money(Math.round(-m)) + ')' : money(Math.round(m))}</td><td class="r m">${T.ing ? plPct(Math.abs(m), T.ing) + '%' : ''}</td></tr>`).join('')}</table><div class="m" style="margin-top:6px">La tercera columna es el porcentaje sobre el ingreso total. Los gastos van entre paréntesis.</div></div>`;
+  h += `<h2 id="plER">Estado de resultados · ${esc(stTitulo())}</h2><div class="card"><table class="pltab">${plRenglones(P).map(([l, m, tp]) => tp === 'h' ? `<tr class="h"><td colspan="3">${l}</td></tr>` : `<tr class="${tp}"><td>${esc(l)}</td><td class="r">${m < 0 ? '(' + money(Math.round(-m)) + ')' : money(Math.round(m))}</td><td class="r m">${T.ing ? plPct(Math.abs(m), T.ing) + '%' : ''}</td></tr>`).join('')}</table><div class="m" style="margin-top:6px">La tercera columna es el porcentaje sobre el ingreso total. Los gastos van entre paréntesis.</div></div>`;
   h += `<h2>Lectura del periodo</h2><div class="card">${plLectura(D).map(x => `<p style="margin:0 0 8px;line-height:1.45">${esc(x)}</p>`).join('')}</div>`;
   const filaDep = () => `<div style="overflow-x:auto"><table class="pltab"><tr class="h"><td>Depa</td><td class="r">Ingreso</td><td class="r">Gasto</td><td class="r">Neta</td><td class="r">Ocup.</td></tr>${P.deps.slice().sort((a, b) => b.neta - a.neta).map(x => `<tr><td><button class="lnk" data-stgo="depa|${esc(x.code)}">${esc(x.code)}</button></td><td class="r">${money(Math.round(x.ing))}</td><td class="r">${money(Math.round(x.egr))}</td><td class="r" style="color:${x.neta >= 0 ? '#1f6b4a' : '#a3301f'}"><b>${money(Math.round(x.neta))}</b></td><td class="r">${plPct(x.noches, x.disp)}%</td></tr>`).join('')}</table></div>`;
   const filaRes = () => P.RES.length ? `<div class="list">${P.RES.map(x => `<div class="it"><div class="sp"><div><b>${esc(x.r.property_code)}</b> · ${esc(pnom(x.r.guest))}</div><div class="m">${fmt(x.r.checkin)} a ${fmt(x.r.checkout)} · ${x.n} de ${x.tot} noches en el periodo</div></div><b>${x.parte ? money(Math.round(x.parte)) : '<span class="b cambio">SIN MONTO</span>'}</b></div>`).join('')}</div>` : '<div class="empty">Sin reservas en el periodo.</div>';
   const filaGas = () => P.GAS.length ? `<div class="list">${P.GAS.map(x => `<div class="it"><div class="sp"><div><b>${esc(x.property_code)}</b> · ${esc(catLabel(x))}</div><div class="m">${fmt(x.date)}${x.description ? ' · ' + esc(x.description) : ''}</div></div>${(x.photos || []).length ? '<span class="b alta">TICKET</span>' : '<span class="b n">SIN TICKET</span>'}<b style="min-width:76px;text-align:right">${money(Math.round(x.amount))}</b></div>`).join('')}</div>` : '<div class="empty">Sin gastos en el periodo.</div>';
   h += `<h2>Detalle</h2><div class="card aclist">${P.deps.length > 1 ? acRow('pl:depas', { tit: 'Por depa', sub: 'Toca un depa para ver solo el suyo', pills: acPill(P.deps.length + ' DEPAS', ''), body: filaDep }) : ''}${acRow('pl:res', { tit: 'Reservas del periodo', sub: 'Ingreso repartido por noches dentro del periodo', pills: T.sinMonto ? acPill(T.sinMonto + ' SIN MONTO', 'med') : acPill(P.RES.length + ' RESERVAS', ''), body: filaRes })}${acRow('pl:gas', { tit: 'Gastos y comprobantes', sub: 'Los tickets van completos en el anexo del PDF', pills: T.sinFoto ? acPill(T.sinFoto + ' SIN TICKET', 'med') : acPill(P.GAS.length + ' GASTOS', ''), body: filaGas })}</div>`;
-  return h + `<div class="m" style="margin-top:10px">Ingreso de reservas = pago neto de Airbnb de cada reserva, repartido por noches. No se incluyen la nómina de limpieza ni la lavandería reales: al dueño se le cobra la tarifa acordada por salida.</div>`;
+  return h + `<div class="m" style="margin-top:10px">Ingreso de reservas = neto depositado por Airbnb (ya sin su comisión ni retenciones), repartido por noches. No se incluyen la nómina de limpieza ni la lavandería reales: al dueño se le cobra la tarifa acordada por salida.</div>`;
 };
 async function plImg(path) { try { const url = await photoSrc(path); if (!url) return null; const im = await new Promise((ok, no) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => ok(i); i.onerror = no; i.src = url; });
   const mx = 1100, e = Math.min(1, mx / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * e); c.height = Math.round(im.height * e); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); return { d: c.toDataURL('image/jpeg', 0.7), w: c.width, h: c.height }; } catch (_) { return null; } }
@@ -790,7 +852,7 @@ async function plPdf() {
   if (P.deps.length > 1) tabla('Por depa', [['Depa', mx], ['Torre', mx + 110], ['Ingreso', mx + 300, 'right'], ['Gasto', mx + 380, 'right'], ['Utilidad neta', mx + 470, 'right'], ['Ocup.', W - mx, 'right']], P.deps.slice().sort((a, b) => b.neta - a.neta).map(x => [x.code, x.torre, m(x.ing), m(x.egr), m(x.neta), plPct(x.noches, x.disp) + '%']));
   tabla('Reservas del periodo', [['Depa', mx], ['Huésped', mx + 90], ['Entrada', mx + 215], ['Salida', mx + 290], ['Noches', mx + 400, 'right'], ['Ingreso del periodo', W - mx, 'right']], P.RES.map(x => [x.r.property_code, pnom(x.r.guest), fmt(x.r.checkin), fmt(x.r.checkout), x.n + ' de ' + x.tot, x.parte ? m(x.parte) : 'sin monto']));
   let nA = 0; const anexo = []; tabla('Gastos del periodo', [['Fecha', mx], ['Depa', mx + 62], ['Concepto', mx + 150], ['Anexo', mx + 430, 'right'], ['Monto', W - mx, 'right']], P.GAS.map(x => { const ph = x.photos || []; let ref = 'sin ticket'; if (ph.length) { nA++; ref = 'A' + nA; anexo.push({ ref, x, ph }); } return [fmt(x.date), x.property_code, lim(catLabel(x) + (x.description ? ' · ' + x.description : '')).slice(0, 52), ref, m(x.amount)]; }));
-  h2('Supuestos del cálculo'); const C = P.C; for (const p of [`Ingreso por reservas: pago neto de Airbnb de cada reserva, repartido por noches ocupadas dentro del periodo.`, `Gestión administrativa MGM: ${C.gestion.def}% de los ingresos por reservas${Object.entries(C.gestion).filter(x => x[0] !== 'def' && P.codes.includes(x[0])).map(([c, p]) => `; ${c} ${p}%`).join('')}.`, `Limpieza y lavandería: tarifa acordada por salida de cada depa. No se incluyen la nómina de limpieza ni la lavandería reales.`, `Cajones: renta de $${C.cajon_ing.monto} al mes para los depas que la reciben y $${C.cajon_renta.monto} al mes para los que la pagan, en proporción a los días del periodo.`, `IVA a cargo del dueño: ${C.iva}% de la utilidad antes de impuestos de cada depa.`]) { const L = doc.splitTextToSize(lim('• ' + p), W - 2 * mx); salto(L.length * 12 + 4); txt(L, mx, y, { s: 9 }); y += L.length * 12 + 4; }
+  h2('Supuestos del cálculo'); const C = P.C; for (const p of [`Ingreso por reservas: neto depositado por Airbnb de cada reserva (ya sin su comisión ni las retenciones de IVA e ISR), repartido por noches ocupadas dentro del periodo.`, `Gestión administrativa MGM: ${C.gestion.def}% de los ingresos por reservas${Object.entries(C.gestion).filter(x => x[0] !== 'def' && P.codes.includes(x[0])).map(([c, p]) => `; ${c} ${p}%`).join('')}.`, `Limpieza y lavandería: tarifa acordada por salida de cada depa. No se incluyen la nómina de limpieza ni la lavandería reales.`, `Cajones: renta de $${C.cajon_ing.monto} al mes para los depas que la reciben y $${C.cajon_renta.monto} al mes para los que la pagan, en proporción a los días del periodo.`, `IVA a cargo del dueño: ${C.iva}% de la utilidad antes de impuestos de cada depa.`]) { const L = doc.splitTextToSize(lim('• ' + p), W - 2 * mx); salto(L.length * 12 + 4); txt(L, mx, y, { s: 9 }); y += L.length * 12 + 4; }
   if (anexo.length) { doc.addPage(); y = 50; txt('ANEXO · COMPROBANTES', mx, y, { b: 1, s: 12, c: VERDE }); y += 8; txt(`${anexo.length} gastos con comprobante. La clave (A1, A2…) corresponde a la columna «Anexo» de la tabla de gastos.`, mx, y + 10, { s: 9, c: GR }); y += 26;
     for (const a of anexo) for (const [i, ph] of a.ph.entries()) { const im = await plImg(ph), bw = W - 2 * mx, bh = 300; if (y + bh + 34 > H - 40) { doc.addPage(); y = 50; }
       txt(`${a.ref}${a.ph.length > 1 ? '.' + (i + 1) : ''} · ${fmt(a.x.date)} · ${a.x.property_code} · ${lim(catLabel(a.x))} · ${m(a.x.amount)}`, mx, y, { b: 1, s: 9 }); y += 8;
@@ -1247,48 +1309,6 @@ VIEWS.claves = () => {
       return acRow('cl:' + pl, { tit: pl, dp: true, pills: acPill(t ? 'CON CLAVE' : 'SIN CLAVE', t ? 'ok' : ''), right: t ? `<button class="pri" data-copyclave="${esc(pl)}">Copiar</button>` : '',
         body: () => `<label class="m">Clave 1<input class="code" style="width:100%;margin-top:4px" data-code="${esc(pl)}|code1" value="${esc(c.code1 || '')}" autocomplete="off"></label><label class="m" style="display:block;margin-top:8px">Clave 2<input class="code" style="width:100%;margin-top:4px" data-code="${esc(pl)}|code2" value="${esc(c.code2 || '')}" autocomplete="off"></label><div class="m" style="margin-top:6px">Se guarda al salir de cada campo.</div>` }); }).join('') + '</div>';
 };
-// ---------- P&L (Beta): análisis + cuestionario para María (solo superadmin) ----------
-const PNLQ = [
-  ['Decisiones clave', [
-    { id: 'ingreso', q: '¿En qué mes cuenta el ingreso de una reserva?', help: 'Hoy el Excel usa la fecha en que Airbnb paga. Lo estándar en STR es contar las noches ocupadas dentro de cada mes.', opts: ['Por fecha de payout (como hoy)', 'Por noches ocupadas en el mes (estándar)', 'No estoy segura, explícame'] },
-    { id: 'imp8', q: '¿Qué es el 8% que se descuenta para llegar a la Utilidad Neta?', help: 'En el P&L de Q-104 se aplica desde junio: Utilidad neta = Utilidad antes de impuestos − 8%.', opts: ['ISR del dueño', 'Otro concepto (explícalo abajo)', 'No sé'], ask: '¿Aplica igual en todos los depas?' },
-    { id: 'gestion', q: '¿Qué % de gestión administrativa cobra MGM?', help: 'En Q-104 es 15% sobre ingresos por reservas.', opts: ['15% en todos los depas', 'Varía por depa (anota cuál abajo)'] },
-    { id: 'envio', q: '¿Cómo se entrega el PDF a cada dueño?', opts: ['María lo revisa y lo manda', 'Se envía solo a cada dueño', 'Se envía solo, con copia a María'] }
-  ]],
-  ['Datos de Airbnb', [
-    { id: 'captura', q: '¿Necesitas el desglose de cada pago de Airbnb?', help: 'La app ya toma de cada correo lo que ganas (payout neto, solo pesos) y crea el ingreso. Para el reporte al dueño podría faltar: código HM…, monto bruto, limpieza cobrada, comisión Airbnb, impuestos liquidados, retención ISR, retención IVA, payout neto y fecha de payout.', opts: ['Subir cada mes el CSV de transacciones de Airbnb (recomendado)', 'Captura manual por reserva', 'Las dos'] },
-    { id: 'ocup', q: '¿De dónde sale el % de ocupación?', help: 'Desde el 18 nov la app recibe todas las reservas de Airbnb por iCal, así que el cálculo desde la app ya es completo. Ojo: junio dice 96% (Airbnb) pero calculado desde reservas da 57%.', opts: ['Calculado desde las reservas de la app', 'Dato de Airbnb capturado a mano'] },
-    { id: 'tarifa', q: '¿De dónde sale la tarifa promedio por noche?', opts: ['Calculada: ingreso ÷ noches', 'Dato de Airbnb capturado a mano'] },
-    { id: 'resenas', q: '¿Cómo armamos la Evaluación de desempeño?', opts: ['Estrellas por reserva capturadas en la app', 'Subir las capturas de Airbnb del mes', 'Las dos', 'No incluirla'] }
-  ]],
-  ['Cobros al dueño', [
-    { id: 'limpieza', q: 'Limpieza: ¿cuánto se le cobra al dueño por cada salida?', help: 'Q-104 octubre: 6 limpiezas × $500 = $3,000.', opts: ['Mismo monto en todos los depas', 'Varía por depa (anota abajo)'] },
-    { id: 'lavanderia', q: 'Lavandería: ¿cómo se cobra?', help: 'Q-104: $200 por limpieza de junio a septiembre y $100 en octubre.', opts: ['Monto fijo por limpieza', 'Lo que se pague real en el mes', 'Varía por depa'] },
-    { id: 'otros', q: 'Otros ingresos (ej. renta de estacionamiento): ¿qué depas los tienen y son fijos cada mes?', help: 'Renta de cajón: base $500 al mes; si alguno cobra más se ajusta por cajón en Supuestos → Cajones Qalina.', text: true },
-    { id: 'liquida', q: '¿Registramos la transferencia de la utilidad al dueño (monto, fecha, referencia)?', opts: ['Sí, como estado de cuenta', 'No es necesario'] },
-    { id: 'recurrentes', q: 'Luz, agua, gas, internet y mantenimiento ya están en Pagos de servicios. ¿Qué otros gastos son fijos cada mes por depa?', text: true }
-  ]],
-  ['Dueños', [
-    { id: 'duenos', q: 'Anota por depa: dueño y correo (un depa por línea).', help: 'Ej.: Q-104 – Nombre del dueño – correo@dominio.com', text: true, rows: 6 }
-  ]],
-  ['Cortes por correo', [
-    { id: 'semanal', q: 'Corte semanal: ya existe por WhatsApp (Admin → Automatizaciones → WhatsApp → Semana de negocio). ¿Lo quieres también por correo?', opts: ['Con WhatsApp me basta', 'También por correo', 'Solo por correo'], ask: '¿Qué más quieres ver en el corte semanal?' },
-    { id: 'mensual', q: 'Corte mensual del portafolio: ¿qué día?', opts: ['Día 1', 'Día 3 (da tiempo de capturar gastos)', 'Día 5', 'Otro'] }
-  ]],
-  ['Elementos sugeridos (estándar STR)', [
-    { id: 'extras', q: 'Marca los que quieres en el reporte al dueño:', multi: ['RevPAR (ingreso por noche disponible)', 'Estancia promedio', 'Anticipación de reserva', 'Costo de limpieza por salida', 'Comparativo vs mes anterior', 'Comparativo vs mismo mes año anterior', 'Reservas confirmadas del mes siguiente', 'Calificación promedio', 'Estado de cuenta / liquidación', 'Canal de reserva (Airbnb, directo…)'] }
-  ]]
-];
-const PNL_HALLAZGOS = [
-  'El total de gastos no cuadra en el PDF: arriba $40,527 y abajo $40,498. La diferencia ($29) es "Gastos por inversión", que suma al total pero su sección no aparece.',
-  'La fila "Mantenimiento AA" de enero suma la categoría "Pintura".',
-  '"Otro" se suma dos veces: en Limpieza y en Mantenimiento.',
-  'En la gráfica "Días libres vs rentados" las etiquetas están invertidas (junio: 17 libres / 13 rentados con 57% de ocupación) y el total da −58.',
-  'La ocupación de Airbnb (96% junio) no coincide con la calculada desde reservas (57%).'
-];
-const pnlRow = () => S.t.pnl_beta.find(r => r.id === 'respuestas') || { id: 'respuestas', data: {} };
-const pnlPreg = () => S.t.pnl_beta.filter(r => r.id !== 'respuestas').sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
-function pnlSet(k, v) { const r = pnlRow(); return ups('pnl_beta', { id: 'respuestas', data: { ...r.data, [k]: v }, updated_by: S.email, updated_at: new Date().toISOString() }, ['id'], 'Respuesta guardada'); }
 // ---------- Estadísticas: cómo va el negocio, con alertas, semáforos, tendencia y reporte en PDF ----------
 // Todo se calcula con lo que ya está cargado (reservas, bloqueos, gastos e ingresos, limpiezas). Solo se guardan los grupos de depas.
 const stDias = (a, b) => Math.round((parse(b) - parse(a)) / 864e5);
@@ -1499,33 +1519,6 @@ async function stPdf() {
   const name = 'MGM ' + stTitulo().replace(/[^\wáéíóúñÁÉÍÓÚÑ -]/g, '') + ' ' + A.f + ' a ' + add(A.t, -1) + '.pdf';
   S.stPdf = { name, blob: doc.output('blob') }; render(); toast('Reporte listo');
 }
-function pnlForm() {
-  const A = pnlRow().data || {}, all = PNLQ.flatMap(s => s[1]);
-  const hechas = all.filter(q => q.multi ? (A[q.id] || []).length : A[q.id]).length;
-  let h = `<div class="card" style="border-left:4px solid var(--copper,#b0703c)"><div class="row"><b class="sp">P&L (Beta)</b><span class="b">${hechas}/${all.length} respondidas</span></div>
-    <div class="m" style="margin-top:6px">Estudié el P&L de Q-104 (octubre). Antes de construir el módulo necesito tus respuestas. Se guardan solas; cuando termines, avísale a Paco para que yo las revise y te haga más preguntas o arme la primera versión.</div>
-    <div class="m" style="margin-top:6px">Lo que vamos a construir: <b>1)</b> consulta diaria del P&L por depa y del portafolio, <b>2)</b> corte semanal para ti (ya sale por WhatsApp), <b>3)</b> corte mensual del portafolio y <b>4)</b> un PDF por depa para el dueño, con el look de las propuestas MGM, conservando todo lo que tiene hoy el reporte.</div>
-    ${A.updated_by ? '' : ''}</div>`;
-  h += `<details class="card"><summary><b>Lo que ya tiene la app y lo que falta</b></summary>
-    <div class="m" style="margin-top:8px"><b>Ya lo tenemos:</b> todas las reservas de Airbnb (iCal cada 30 min), huésped y payout de cada reserva (correos reenviados → ingreso automático), bloqueos N/A, gastos con categoría y fotos, pagos de servicios por depa (con su gasto), limpiezas hechas por depa. Con eso salen solos: ocupación, noches promedio, días libres vs rentados y comprobantes.</div>
-    <div class="m" style="margin-top:6px"><b>Falta capturar:</b> desglose del pago de Airbnb (comisión, impuestos, retenciones) si se necesita, % de gestión e impuesto por depa, dueño y correo, tarifas de limpieza y lavandería al dueño, ajustes y reembolsos negativos, categoría "Muebles", grupo para "Otro", calificaciones, otros gastos fijos fuera de servicios y liquidación al dueño.</div></details>`;
-  h += `<details class="card"><summary><b>Errores que encontré en el Excel actual (${PNL_HALLAZGOS.length})</b></summary>${PNL_HALLAZGOS.map(x => `<div class="m" style="margin-top:6px">• ${esc(x)}</div>`).join('')}</details>`;
-  for (const [sec, qs] of PNLQ) {
-    h += `<h2>${esc(sec)}</h2>`;
-    for (const q of qs) {
-      const v = A[q.id];
-      h += `<div class="card"><div class="dp" style="font-size:15px">${esc(q.q)}</div>${q.help ? `<div class="m" style="margin-top:4px">${esc(q.help)}</div>` : ''}`;
-      if (q.opts) h += `<div class="chips" style="margin-top:8px">${q.opts.map(o => `<label class="chip ${v === o ? 'on' : ''}"><input type="radio" name="pq-${q.id}" data-pq="${q.id}" value="${esc(o)}" ${v === o ? 'checked' : ''} hidden>${esc(o)}</label>`).join('')}</div>`;
-      if (q.multi) { const sel = v || []; h += `<div class="chips" style="margin-top:8px">${q.multi.map(o => `<label class="chip ${sel.includes(o) ? 'on' : ''}"><input type="checkbox" data-pqm="${q.id}" value="${esc(o)}" ${sel.includes(o) ? 'checked' : ''} hidden>${esc(o)}</label>`).join('')}</div>`; }
-      if (q.text) h += `<textarea style="width:100%;margin-top:8px" rows="${q.rows || 3}" data-pqt="${q.id}" placeholder="Escribe aquí…">${esc(v || '')}</textarea>`;
-      else h += `<textarea style="width:100%;margin-top:8px" rows="2" data-pqt="${q.id}_c" placeholder="${esc(q.ask || 'Comentario (opcional)')}">${esc(A[q.id + '_c'] || '')}</textarea>`;
-      h += `</div>`;
-    }
-  }
-  h += `<h2>Tus preguntas para Claude</h2><div class="card"><textarea id="pnlQ" style="width:100%" rows="3" placeholder="¿Algo no está claro o quieres agregar algo al reporte? Escríbelo aquí."></textarea><div class="row" style="margin-top:8px"><span class="sp"></span><button class="pri" data-pnlq="1">Agregar pregunta</button></div></div>`;
-  h += pnlPreg().map(p => `<div class="card"><div class="m">${esc(p.updated_by || '')} · ${esc(fmt((p.updated_at || '').slice(0, 10)))}</div><div style="margin-top:4px;white-space:pre-wrap">${esc(p.data.texto)}</div>${p.data.respuesta ? `<div class="m" style="margin-top:8px;border-left:3px solid var(--acc);padding-left:8px;white-space:pre-wrap"><b>Respuesta:</b> ${esc(p.data.respuesta)}</div>` : '<div class="m" style="margin-top:6px">Pendiente de respuesta</div>'}<div class="row" style="margin-top:6px"><span class="sp"></span><button data-pnldel="${p.id}">Borrar</button></div></div>`).join('');
-  return h;
-};
 // ---------- PAGOS DE SERVICIOS ----------
 const SERV = [['luz', 'Luz (CFE)'], ['agua', 'Agua (SIAPA)'], ['gas', 'Gas'], ['internet', 'Internet'], ['mantenimiento', 'Mantenimiento']];
 const SERV_CAT = { luz: 'Luz', agua: 'Agua', gas: 'Gas', internet: 'Internet', mantenimiento: 'Mantenimiento del edificio' };
@@ -1741,7 +1734,7 @@ const PERM = [
   ['P&L (Beta)', '✏️', '—', '—'],
   ['Supuestos y usuarios', '✏️', '—', '—'],
   ['Admin · automatizaciones y WhatsApp', '✏️', '—', '—'],
-  ['Avisos de WhatsApp (Claudio)', 'María recibe', '—', '—'],
+  ['Avisos de WhatsApp (Frankie)', 'María recibe', '—', '—'],
   ['Respaldo diario (correo 10 pm)', 'María recibe', '—', '—']
 ];
 const ROL_N = { superadmin: 'Superadmin', socio: 'Socio', finanzas: 'Finanzas' };
@@ -1749,7 +1742,7 @@ const haceCuanto = ts => { if (!ts) return 'Nunca ha entrado'; const m = Math.ro
   return m < 2 ? 'Ahora' : m < 60 ? `Hace ${m} min` : m < 1440 ? `Hace ${Math.round(m / 60)} h` : m < 2880 ? 'Ayer' : `Hace ${Math.round(m / 1440)} días`; };
 const AUTOS = [['ical', '🔄 Reservas desde Airbnb (iCal)', 'Cada 30 min: altas, cambios de fechas y cancelaciones'], ['correos', '✉️ Correos de Airbnb', 'Cada 30 min: nombre del huésped, monto e ingreso (solo pesos)'],
   ['resp_correo', '📧 Respaldo diario por correo', 'Todos los días 10 pm'], ['resp_drive', '☁️ Respaldo en Drive', 'Cada 4 h + paquete del lunes + fotos'], ['claves', '🔑 Pendientes de cambio de clave', 'Cada 3 meses, uno por depa']];
-// WhatsApp con Claudio: avisos para María. Todo nace APAGADO; ella prende lo que quiera. n8n lee esta configuración (settings.whatsapp).
+// WhatsApp con Frankie (de cara a María el asistente se llama Frankie, no Claudio): avisos para María. Todo nace APAGADO; ella prende lo que quiera. n8n lee esta configuración (settings.whatsapp).
 const DIAS7 = ['D', 'L', 'M', 'M', 'J', 'V', 'S'], TODOS = [0, 1, 2, 3, 4, 5, 6];
 const WA = [
   ['arranque', '☀️ Arranque del día', 'Salidas, entradas, quién limpia qué, lo que falta asignar, depas libres y descansos', { hora: '07:30', dias: TODOS }],
@@ -1774,8 +1767,8 @@ function waHTML() {
     ${it.claves != null ? `<label class="m"><input type="checkbox" data-wa="${k}" data-waf="claves" ${it.claves ? 'checked' : ''} ${on && it.on ? '' : 'disabled'}> con claves</label>` : ''}</div>${dias(k, it)}`;
   const DN = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'], cuando = it => it.rt ? 'AL MOMENTO' : ((it.horas || [it.hora]).join(' y ') + ' · ' + ((it.dias || []).length === 7 ? 'diario' : (it.dias || []).length === 1 ? DN[it.dias[0]] : (it.dias || []).length + ' días')).toUpperCase();
   const nOn = WA.filter(([k]) => c.items[k].on).length;
-  return `<h2 style="margin-top:18px">📲 WhatsApp con Claudio</h2>
-    <div class="card ligares st-k-${on ? 'ok' : ''}"><div class="row"><span class="ligadot st-b-${on ? 'ok' : 'n'}"></span><div class="sp"><b>${on ? `${nOn} de ${WA.length} avisos prendidos` : 'Avisos por WhatsApp apagados'}</b><div class="m">Claudio te escribe un resumen corto; responde <b>ver</b> para el detalle. Lo que pide acción trae liga directa a la app.</div></div><label class="sw"><input type="checkbox" data-waon="1" ${on ? 'checked' : ''}><span></span></label></div>
+  return `<h2 style="margin-top:18px">📲 WhatsApp con Frankie</h2>
+    <div class="card ligares st-k-${on ? 'ok' : ''}"><div class="row"><span class="ligadot st-b-${on ? 'ok' : 'n'}"></span><div class="sp"><b>${on ? `${nOn} de ${WA.length} avisos prendidos` : 'Avisos por WhatsApp apagados'}</b><div class="m">Frankie te escribe un resumen corto; responde <b>ver</b> para el detalle. Lo que pide acción trae liga directa a la app.</div></div><label class="sw"><input type="checkbox" data-waon="1" ${on ? 'checked' : ''}><span></span></label></div>
     <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><span class="m">Silencio (no manda los de “al momento”) de</span><input type="time" value="${c.silencio[0]}" data-wa="_" data-waf="silencio.0" ${on ? '' : 'disabled'}><span class="m">a</span><input type="time" value="${c.silencio[1]}" data-wa="_" data-waf="silencio.1" ${on ? '' : 'disabled'}></div></div>
     <div class="card aclist${on ? '' : ' off'}">${WA.map(([k, n, dsc]) => { const it = c.items[k]; return acRow('wa:' + k, { tit: n, sub: dsc, pills: it.on ? acPill(cuando(it), '') : acPill('APAGADO', ''), right: `<label class="sw"><input type="checkbox" data-waitem="${k}" ${it.on ? 'checked' : ''} ${on ? '' : 'disabled'}><span></span></label>`,
       body: () => it.on ? ctl(k, it) : '<div class="m">Préndelo con el interruptor para configurar su horario.</div>' }); }).join('')}</div>
@@ -1898,7 +1891,7 @@ $('avatar').addEventListener('click', () => go('perfil'));
 window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (t && t !== S.tab) { S.tab = t; render(); } });
 
 $('view').addEventListener('click', async e => {
-  const el = e.target.closest('button,[data-res],[data-tx],[data-task],[data-buy],[data-extra],[data-servpay],[data-servacc],[data-servhide],[data-stgo]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('button,[data-res],[data-tx],[data-task],[data-buy],[data-extra],[data-servpay],[data-servacc],[data-servhide],[data-stgo],[data-plmes]'); if (!el) return; const d = el.dataset;
   if (d.asig) return sheetAsignar(d.asig);
   if (d.extra) return extraForm(d.extra);
   if (d.newextra) return extraForm(null);
@@ -1945,7 +1938,11 @@ $('view').addEventListener('click', async e => {
   if (d.ocdias) { S.ocDias = +d.ocdias; return render(); }
   if (d.octab) { S.ocTab = d.octab; return render(); }
   if (d.pltab) { S.plTab = d.pltab; return render(); }
-  if (d.plr) { [S.plF, S.plT] = d.plr.split('|'); S.plPdf = null; return render(); }
+  if (d.plmes) { const [a, b] = d.plmes.split('|'), [f, t] = plRango(); if (f === a && t === b) { if (S.plPrev) [S.plF, S.plT] = S.plPrev; S.plPrev = null; } else { if (!S.plPrev) S.plPrev = [f, t]; S.plF = a; S.plT = b; } S.plPdf = null; return render(); }
+  if (d.plback) { if (S.plPrev) [S.plF, S.plT] = S.plPrev; S.plPrev = null; S.plPdf = null; return render(); }
+  if (d.plir) { const x = document.getElementById(d.plir); if (x) scrollTo({ top: x.getBoundingClientRect().top + scrollY - [...document.querySelectorAll('.bar,.vhead')].reduce((n, e) => n + e.offsetHeight, 0) - 8, behavior: 'smooth' }); return; }
+  if (d.plpend) { S.plTab = 'pl'; acTog(d.plpend, true); render(); document.getElementById('ac-' + d.plpend)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+  if (d.plr) { [S.plF, S.plT] = d.plr.split('|'); S.plPdf = null; S.plPrev = null; return render(); }
   if (d.plpdf) return plPdf().catch(err => { toast('No se pudo armar el PDF'); window.MGM_AN?.error?.(err, { donde: 'plPdf' }); });
   if (d.pldl && S.plPdf) { const a = document.createElement('a'); a.href = URL.createObjectURL(S.plPdf.blob); a.download = S.plPdf.name; document.body.appendChild(a); a.click(); a.remove(); return; }
   if (d.plshare && S.plPdf) { const fl = new File([S.plPdf.blob], S.plPdf.name, { type: 'application/pdf' }); if (navigator.canShare && navigator.canShare({ files: [fl] })) return navigator.share({ files: [fl], title: S.plPdf.name, text: 'Estado de resultados MGM' }).catch(() => {}); return toast('Este navegador no adjunta archivos: descárgalo y adjúntalo a tu correo.'); }
@@ -1997,8 +1994,6 @@ $('view').addEventListener('click', async e => {
   if (d.waopen) return sheetWA();
   if (d.asigwa) return sheetAsigWA();
   if (d.undo) return deshacer();
-  if (d.pnlq) { const x = $('pnlQ').value.trim(); if (!x) return toast('Escribe tu pregunta'); return ins('pnl_beta', { id: uid(), data: { texto: x }, updated_by: S.email, updated_at: new Date().toISOString() }, 'Pregunta enviada'); }
-  if (d.pnldel) return del('pnl_beta', { id: d.pnldel }, 'Pregunta borrada');
   if (d.calv) { S.calV = d.calv; ls.set('mgm-calv', S.calV); return render(); }
   if (d.zoom) { S.zoom = Math.min(1.4, Math.max(0.3, Math.round((S.zoom + 0.1 * +d.zoom) * 10) / 10)); ls.set('mgm-zoom', S.zoom); return render(); }
   if (d.dn) { S.dia = +d.dn ? add(S.dia, +d.dn) : today(); return render(); }
@@ -2030,8 +2025,8 @@ $('view').addEventListener('click', async e => {
 $('view').addEventListener('change', e => {
   const t = e.target, d = t.dataset;
   if (d.oct) { S.ocT = t.value; return render(); }
-  if (d.plf) { if (t.value) { S.plF = t.value; if (plRango()[1] < S.plF) S.plT = S.plF; S.plPdf = null; } return render(); }
-  if (d.plt) { if (t.value) { S.plT = t.value; if (plRango()[0] > S.plT) S.plF = S.plT; S.plPdf = null; } return render(); }
+  if (d.plf) { if (t.value) { S.plF = t.value; if (plRango()[1] < S.plF) S.plT = S.plF; S.plPdf = null; S.plPrev = null; } return render(); }
+  if (d.plt) { if (t.value) { S.plT = t.value; if (plRango()[0] > S.plT) S.plF = S.plT; S.plPdf = null; S.plPrev = null; } return render(); }
   if (d.stsel) { const [tipo, ...v] = t.value.split('|'); S.stPdf = null; S.plPdf = null; if (tipo === 'nuevo') S.stNuevo = { name: '', set: new Set() }; else { S.stNuevo = null; S.stSel = { tipo, val: v.join('|') }; } return render(); }
   if (d.f) { const [g, k] = d.f.split('|'); S.f[g][k] = t.value; return render(); }
   if (d.supteam) { const [k, c] = d.supteam.split('|'), C = { ...supConf() }, T = new Set(C[k].team); t.checked ? T.add(c) : T.delete(c);
@@ -2041,9 +2036,6 @@ $('view').addEventListener('change', e => {
   if (d.supnew !== undefined) { if (!t.value) return; const C = { ...supConf(), [t.value]: { team: [], monto: 30 } }; return ups('settings', { key: 'supervision', value: C }, ['key'], 'Supervisora agregada'); }
   if (d.servm) { S.f.serv.m = t.value; S.servScroll = true; return render(); }
   if (t.id === 'servQ') { S.f.serv.q = t.value.trim(); return render(); }
-  if (d.pq) return pnlSet(d.pq, t.value);
-  if (d.pqm) { const cur = new Set(pnlRow().data[d.pqm] || []); t.checked ? cur.add(t.value) : cur.delete(t.value); return pnlSet(d.pqm, [...cur]); }
-  if (d.pqt) return pnlSet(d.pqt, t.value);
   if (d.chk) { const [tb, id, f] = d.chk.split('|'); return upd(tb, { id }, { [f]: t.checked }); }
   if (d.caj !== undefined) return upd('reservations', { id: d.caj }, { parking_from: t.value || null });
   if (d.rate) { const [p, k] = d.rate.split('|'); return t.value === '' ? del('cleaning_rates', { property_code: p, cleaner_key: k }) : ups('cleaning_rates', { property_code: p, cleaner_key: k, amount: Number(t.value) }, ['property_code', 'cleaner_key'], 'Tarifa guardada'); }
@@ -2170,7 +2162,10 @@ function czEditor(q) {
   const k = (v, l, go) => `<button class="kpi" data-actog="${go}" data-acir="1"><div class="v">${v}</div><div class="l">${l}</div></button>`;
   h += `<div class="kpis" style="grid-template-columns:repeat(2,1fr);margin-top:8px">${k(money(T.tot), 'Inversión total', 'cz:4')}${k(P.avg ? money(P.avg) : '—', 'Neto mensual de referencia', 'cz:3')}</div>`;
   if (P.payback) h += `<div class="m" style="margin:2px 2px 8px">Con ese neto, el propietario recupera la inversión en ${P.payback} meses.</div>`;
-  if (S.czPdf && S.czPdf.id === q.id) h += `<div class="card" style="border-left:4px solid var(--acc)"><b>PDF listo</b><div class="m" style="margin:2px 0 10px">${esc(S.czPdf.name)}</div><div class="row"><button class="pri sp" data-czshare="1">Enviar por WhatsApp / compartir</button><button data-czdl="1">Descargar</button><button data-czpdfx="1">✕</button></div></div>`;
+  // PDF: el último que se armó queda guardado (quotes.pdf) y se descarga o comparte sin volver a armarlo.
+  const enMem = S.czPdf && S.czPdf.id === q.id, pf = q.pdf, viejo = pf && !enMem && pf.sello && pf.sello !== czSello(d);
+  if (pf && !enMem) czPrecarga(q);
+  if (enMem || pf) h += `<div class="card" style="border-left:4px solid var(--acc)"><b>${pf ? 'PDF guardado' : 'PDF listo'}</b><div class="m" style="margin:2px 0 10px">${esc(enMem ? S.czPdf.name : pf.name)}${pf ? ' · ' + esc(ocFecha(pf.at)) : ''}${viejo ? '<br>La cotización cambió después de este PDF; si quieres mandar lo nuevo, ármalo otra vez.' : ''}</div><div class="row"><button class="pri sp" data-czshare="1">Enviar por WhatsApp / compartir</button><button data-czdl="1">Descargar</button></div><div class="row" style="margin-top:8px"><button class="sp" data-czpdf="1">Armar de nuevo</button><button data-czdup="1">Duplicar</button></div></div>`;
   else h += `<div class="row" style="gap:6px;margin:6px 0 10px"><button class="pri sp" data-czpdf="1">Generar PDF</button><button data-czdup="1">Duplicar</button></div>`;
   h += '<div class="card aclist">';
   h += acRow('cz:1', { tit: '1 · Prospecto y depa', sub: [d.cliente, d.depa].filter(Boolean).join(' · '), pills: pill(1), body: () =>
@@ -2236,10 +2231,11 @@ $('view').addEventListener('click', async e => {
   if (d.czapp) { const D = czClon(), cods = props().filter(p => p.building === D.torre && (!D.recamaras || !p.recamaras || +p.recamaras === +D.recamaras)).map(p => p.code); D.proy.meses = czDatosApp(cods).map(({ mes, v }) => ({ mes, v })); D.proy.fuente = `departamentos similares que operamos en ${D.torre}`; return czGuarda(D, 'Meses tomados de la app'); }
   if (d.czpdf) { el.textContent = 'Armando el PDF…'; el.disabled = true; try { await czPdf(q); } catch (err) { toast('No se pudo armar el PDF'); window.MGM_AN?.error?.(err, { donde: 'czPdf' }); console.error('czPdf', err && err.stack || err); } return render(); }
   if (d.czpdfx) { S.czPdf = null; return render(); }
-  if (d.czdl && S.czPdf) return saveFile(S.czPdf.blob, S.czPdf.name);
-  if (d.czshare && S.czPdf) { const f = new File([S.czPdf.blob], S.czPdf.name, { type: 'application/pdf' });
-    if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: S.czPdf.name }).catch(() => {});
-    toast('Este navegador no deja compartir archivos; se descarga para que lo adjuntes'); return saveFile(S.czPdf.blob, S.czPdf.name); }
+  if (d.czdl || d.czshare) { let A; try { A = await czArchivo(q); } catch (_) { A = null; } if (!A) return toast('No se pudo bajar el PDF guardado; ármalo de nuevo');
+    if (d.czdl) return saveFile(A.blob, A.name);
+    const f = new File([A.blob], A.name, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: A.name }).catch(err => { if (err && err.name !== 'AbortError') { toast('Se descarga para que lo adjuntes'); saveFile(A.blob, A.name); } });
+    toast('Este navegador no deja compartir archivos; se descarga para que lo adjuntes'); return saveFile(A.blob, A.name); }
 });
 
 // ---------- PDF de la cotización ----------
@@ -2346,8 +2342,20 @@ async function czPdf(q) {
   // ---- pies de página
   const N = doc.getNumberOfPages(); for (let i = 1; i <= N; i++) { doc.setPage(i); doc.setFillColor(...C.verde); doc.rect(0, H - 30, W, 30, 'F'); tx(pies[i - 1] || pies[pies.length - 1], mx, H - 12, { s: 6.4, c: [228, 231, 227] }); tx(i + ' / ' + N, W - mx, H - 12, { s: 6.4, c: [228, 231, 227], a: 'right' }); }
   const name = `Propuesta ${d.depa || 'MGM'} ${d.cliente || ''} v${q.version}`.trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_') + '.pdf';
-  S.czPdf = { id: q.id, blob: doc.output('blob'), name }; toast('PDF listo');
+  const blob = doc.output('blob'); S.czPdf = { id: q.id, blob, name };
+  // Se guarda una copia para no tener que volver a armarlo (solo María y Paco la pueden leer).
+  try { const path = await DB.uploadFile(`cotizaciones/${q.id}/v${q.version}-${Date.now()}.pdf`, blob, 'application/pdf'); await upd('quotes', { id: q.id }, { pdf: { path, name, at: new Date().toISOString(), por: S.email || null, sello: czSello(d) } }); toast('PDF listo y guardado'); }
+  catch (err) { toast('PDF listo, pero no se pudo guardar la copia'); window.MGM_AN?.error?.(err, { donde: 'czPdfGuardar' }); }
 }
+// Sello del contenido de la cotización (sin importar el orden de las llaves): dice si cambió después de armar el PDF.
+const czCanon = v => Array.isArray(v) ? '[' + v.map(czCanon).join(',') + ']' : v && typeof v === 'object' ? '{' + Object.keys(v).filter(k => v[k] !== undefined).sort().map(k => JSON.stringify(k) + ':' + czCanon(v[k])).join(',') + '}' : JSON.stringify(v ?? null);
+function czSello(d) { const s = czCanon(d || {}); let h = 5381; for (let i = 0; i < s.length; i++) h = (h * 33 ^ s.charCodeAt(i)) >>> 0; return h + ':' + s.length; }
+// PDF guardado de una cotización: se baja una vez y se queda en memoria (así «Enviar» abre el menú de compartir sin esperar).
+const CZG = new Map();
+async function czArchivo(q) { if (S.czPdf && S.czPdf.id === q.id) return S.czPdf; if (!q.pdf) return null;
+  if (!CZG.has(q.pdf.path)) CZG.set(q.pdf.path, (async () => { const r = await fetch(await DB.photoUrl(q.pdf.path)); if (!r.ok) throw new Error('pdf ' + r.status); return { id: q.id, blob: await r.blob(), name: q.pdf.name }; })().catch(err => { CZG.delete(q.pdf.path); throw err; }));
+  return CZG.get(q.pdf.path); }
+function czPrecarga(q) { czArchivo(q).catch(() => {}); }
 
 initJump();
 start();

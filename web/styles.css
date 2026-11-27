@@ -330,3 +330,19 @@ a.btn.sp{flex:1}
 .pltab tr.h td{font-weight:700;color:var(--acc);font-size:12px;letter-spacing:.04em;text-transform:uppercase;border-bottom:none;padding-top:12px}
 .pltab tr.s td{font-weight:600;border-top:1px solid var(--ink)}
 .pltab tr.t td{font-weight:700;font-size:14.5px;border-top:2px solid var(--ink);background:#f6f4ef}
+/* P&L · tendencia por mes: barra = ingreso (gastos abajo, lo que queda arriba) y línea = utilidad neta */
+.plg{padding-bottom:10px}
+.plleg{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px;color:var(--mute);margin-top:4px}
+.plleg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.plleg i.ln{width:14px;height:2px;border-radius:1px;vertical-align:3px;background:var(--ink)}
+.plsvg{display:block;width:100%;height:auto;margin:6px 0 4px;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.plsvg .reja{stroke:var(--line);stroke-width:1}.plsvg .eje{stroke:var(--mute);stroke-width:1}
+.plsvg .tk{font-size:10px;fill:var(--mute)}.plsvg .mx{font-size:10.5px;fill:var(--mute)}.plsvg .mx.on{fill:var(--ink);font-weight:700}
+.plsvg .uti{fill:var(--acc)}.plsvg .gas{fill:var(--cobre)}
+.plsvg .halo{fill:none;stroke:var(--card);stroke-width:6;stroke-linejoin:round;stroke-linecap:round}
+.plsvg .ln{fill:none;stroke:var(--ink);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.plsvg .pt{fill:var(--ink);stroke:var(--card);stroke-width:2}
+.plsvg .hit{fill:transparent;cursor:pointer}
+.plgt{margin-top:6px}.plgt summary,.plsr summary{color:var(--acc);font-weight:600;font-size:13px;cursor:pointer}
+.plsu{padding:10px 0;border-bottom:1px solid var(--line)}.plsu:first-child{padding-top:2px}.plsu:last-child{border-bottom:none;padding-bottom:2px}
+.plsr{margin-top:6px}.plsr>b{margin-right:8px}.plsr details{display:inline-block;vertical-align:top}.plsr details .m{margin-top:4px}
