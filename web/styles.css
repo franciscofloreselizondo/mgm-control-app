@@ -361,3 +361,6 @@ a.btn.sp{flex:1}
 /* Orden en tablas: el encabezado se toca para ordenar (estándar de la app) */
 .ordh{cursor:pointer;-webkit-user-select:none;user-select:none;white-space:nowrap;-webkit-tap-highlight-color:transparent}.ordh:active{opacity:.6}
 .orda{font-size:.85em}
+/* Supuestos · ordenar depas */
+.ordg{padding:10px 12px}.ordg .ordi{padding:4px 0 4px 10px;border-top:1px solid var(--line);margin-top:4px}
+.ordb{min-width:40px;min-height:36px;padding:0;font-size:13px}.ordb:disabled{opacity:.3}

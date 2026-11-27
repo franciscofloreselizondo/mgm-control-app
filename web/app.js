@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '91';
+const APP_VER = '92';
 const TABLES = ['quotes', 'properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log', 'pl_mensual', 'pl_listings', 'pl_ideas', 'precio_decisiones'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -1731,7 +1731,10 @@ function depaForm(code) {
       const row = { building: (v.building || '').trim() || null, cleaning: v.cleaning === 'true', ical_url: ical || null, airbnb_url: (v.airbnb_url || '').trim() || null,
         has_parking: v.has_parking === 'true', parking_level: v.has_parking === 'true' && v.parking_level !== '' ? Number(v.parking_level) : null, lends_parking: v.has_parking === 'true' && v.lends_parking === 'true', recamaras: v.recamaras === '' || v.recamaras == null ? null : Number(v.recamaras), m2: v.m2 === '' || v.m2 == null ? null : Number(v.m2) };
       if (p) { const cur = k => k === 'cleaning' ? p.cleaning !== false : typeof row[k] === 'boolean' ? !!p[k] : p[k] ?? null, ch2 = Object.fromEntries(Object.entries(row).filter(([k, x]) => cur(k) !== x)); if (Object.keys(ch2).length) await upd('properties', { code: cod }, ch2, 'Ficha guardada'); }
-      else await ins('properties', { code: cod, sort: Math.max(0, ...S.t.properties.map(x => x.sort ?? 0)) + 1, active: true, kind: 'depa', ...row }, cod + ' agregado');
+      else { // un depa nuevo entra al final de su torre (si la torre ya existe), no al fondo de la lista
+        const misma = row.building ? S.t.properties.filter(x => x.building === row.building && x.active !== false && !esCajon(x)) : [], ult = misma.length ? Math.max(...misma.map(x => x.sort ?? 0)) : null;
+        if (ult != null) for (const x of S.t.properties.filter(x => (x.sort ?? 0) > ult)) upd('properties', { code: x.code }, { sort: (x.sort ?? 0) + 1 });
+        await ins('properties', { code: cod, sort: ult != null ? ult + 1 : Math.max(0, ...S.t.properties.filter(x => (x.sort ?? 0) < 999).map(x => x.sort ?? 0)) + 1, active: true, kind: 'depa', ...row }, cod + ' agregado'); }
       if (v.cleaning === 'true') for (const c of ch) { const n = v['rate_' + c.key], cur = p ? rate(cod, c.key) : null;
         if (n === '' || n == null) { if (cur != null) del('cleaning_rates', { property_code: cod, cleaner_key: c.key }); }
         else if (Number(n) !== cur) ups('cleaning_rates', { property_code: cod, cleaner_key: c.key, amount: Number(n) }, ['property_code', 'cleaner_key']); }
@@ -1926,15 +1929,31 @@ VIEWS.perfil = () => { const u = S.me, sup = u.role === 'superadmin';
   ${sup ? `<div class="card"><label class="fl" style="margin-top:0"><span>Nombre</span><input data-myname="1" value="${esc(u.name || '')}"></label></div><button class="sp" style="width:100%;margin-bottom:8px" data-go="supuestos">Administrar usuarios</button>` : ''}
   <button style="width:100%" data-logout="1">Cerrar sesión</button>`; };
 
+// ---------- Orden de depas y torres: un solo orden (properties.sort) que heredan todas las vistas ----------
+function ordDepGrupos() { const G = []; for (const code of S.ordDep) { const p = S.t.properties.find(x => x.code === code), b = p.building || 'Sin edificio', g = G[G.length - 1]; if (g && g.b === b) g.c.push(code); else G.push({ b, c: [code] }); } return G; }
+function ordDepVista() {
+  const G = ordDepGrupos(), cambio = S.ordDep.join() !== props().map(p => p.code).join(), fl = (k, dis, t) => `<button class="ordb" data-ordmv="${esc(k)}" ${dis ? 'disabled' : ''} aria-label="${t}">${t === 'Subir' ? '▲' : '▼'}</button>`;
+  let h = `<div class="stfix"><div class="row" style="gap:8px"><button data-ordcancel="1">Cancelar</button><b class="sp" style="text-align:center">Ordenar depas</b><button class="pri" data-ordsave="1" ${cambio ? '' : 'disabled'}>Guardar</button></div></div>
+    <div class="m" style="margin:8px 2px">Este orden se usa en toda la app: calendario, cajones, nómina, P&amp;L y demás. Las flechas de la torre la mueven completa.</div>`;
+  G.forEach((g, i) => { h += `<div class="card ordg"><div class="row"><b class="sp">${esc(g.b)}</b>${fl('t|' + i + '|-1', !i, 'Subir')}${fl('t|' + i + '|1', i === G.length - 1, 'Bajar')}</div>${g.c.length > 1 ? g.c.map((c, j) => `<div class="row ordi"><span class="sp">${esc(c)}</span>${fl('d|' + c + '|-1', !j, 'Subir')}${fl('d|' + c + '|1', j === g.c.length - 1, 'Bajar')}</div>`).join('') : `<div class="m ordi">${esc(g.c[0])}</div>`}</div>`; });
+  return h;
+}
+function ordDepMover(k) { const [tp, x, dir] = k.split('|'), d = +dir;
+  if (tp === 't') { const G = ordDepGrupos(), i = +x, j = i + d; if (j < 0 || j >= G.length) return; [G[i], G[j]] = [G[j], G[i]]; S.ordDep = G.flatMap(g => g.c); }
+  else { const L = S.ordDep, i = L.indexOf(x), j = i + d; if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; } }
+async function ordDepGuardar() { const L = S.ordDep; let n = 0;
+  for (let i = 0; i < L.length; i++) { const p = S.t.properties.find(x => x.code === L[i]); if (p && p.sort !== i) { upd('properties', { code: L[i] }, { sort: i }); n++; } }
+  S.ordDep = null; toast(n ? 'Orden guardado' : 'Sin cambios'); render(); }
 // ---------- SUPUESTOS ----------
 VIEWS.supuestos = () => {
+  if (S.ordDep) return ordDepVista();
   const RCD = setting('renta_cajon_depa', {}) || {}, RB = Number(setting('renta_cajon', 500)), bono = Number(setting('bono_domingo', 50)), P = props();
   const DEP = S.t.properties.filter(p => !esCajon(p)).sort((a, b) => (a.active === false) - (b.active === false) || (a.sort ?? 0) - (b.sort ?? 0) || a.code.localeCompare(b.code));
   const incom = P.filter(p => depaFalta(p).length), CH = S.t.cleaners.filter(c => c.key !== NA), chAct = CH.filter(c => c.active !== false), QA = [...P, ...cajonesSueltos()].filter(p => p.building === 'Qalina');
   const sinTar = P.filter(p => p.cleaning !== false && !chAct.some(c => rate(p.code, c.key) != null)), sinCal = P.filter(p => !p.ical_url && !p.ical_extra), aCargo = P.filter(p => p.cleaning !== false).length, be = setting('backup_emails', []), nBe = (Array.isArray(be) ? be : []).length;
   const pend = [sinTar.length && [sinTar.length + ' depa' + (sinTar.length > 1 ? 's' : '') + ' sin tarifa de limpieza', 'su:depas'], sinCal.length && [sinCal.length + ' sin calendario de Airbnb', 'su:depas'], incom.length && [incom.length + ' con ficha incompleta', 'su:depas'], !nBe && ['Respaldo sin correos', 'su:respaldo']].filter(Boolean);
   let h = acResumen(pend.length ? 'med' : 'ok', pend.length ? `Supuestos: ${pend.length} cosa${pend.length > 1 ? 's' : ''} por completar` : 'Supuestos al día', pend.length ? 'Toca un pendiente para ir directo.' : 'No falta nada por configurar.', [['Pendientes:', pend.map(([t, k]) => [k, t])]]) + '<div class="card aclist">';
-  h += acRow('su:depas', { tit: 'Depas', sub: 'Activar, agregar y ficha de cada depa', pills: acPill(P.length + ' ACTIVOS', 'ok') + (incom.length ? acPill(incom.length + ' INCOMPLETOS', 'med') : ''), right: '<button data-newdepa="1">＋ Agregar</button>',
+  h += acRow('su:depas', { tit: 'Depas', sub: 'Activar, agregar, ordenar y ficha de cada depa', pills: acPill(P.length + ' ACTIVOS', 'ok') + (incom.length ? acPill(incom.length + ' INCOMPLETOS', 'med') : ''), right: '<button data-orddep="1">Ordenar</button> <button data-newdepa="1">＋ Agregar</button>',
     body: () => `<div class="m" style="margin-bottom:6px">Toca Ficha para ver o completar todo lo de un depa (edificio, tarifas, calendario, cajón, claves, servicios); nada es obligatorio. Desactivar un depa lo quita del calendario, de Hoy y de la sincronización con Airbnb. Su historial se conserva.</div><div class="list">${DEP.map(p => `<div class="it"><span class="dp">${esc(p.code)}</span><div class="sp"><span class="m">${esc(p.building || '')}${p.ical_url || p.ical_extra ? ' · 🔄 Airbnb' : ''}</span>${p.active === false ? ' <span class="b baja">INACTIVO</span>' : ''}${p.active !== false && depaFalta(p).length ? ` <span class="b cambio" title="${esc(depaFalta(p).join(', '))}">FALTAN ${depaFalta(p).length}</span>` : ''}</div><button data-depaficha="${esc(p.code)}">Ficha</button><button data-togdepa="${esc(p.code)}" class="${p.active === false ? 'pri' : ''}">${p.active === false ? 'Activar' : 'Desactivar'}</button></div>`).join('')}</div>` });
   h += acRow('su:limpieza', { tit: 'Limpieza a cargo de MGM', sub: 'Qué depas limpiamos nosotros', pills: acPill(aCargo + ' DE ' + P.length, aCargo ? 'ok' : ''),
     body: () => `<div class="m" style="margin-bottom:6px">Desmarca los depas cuya limpieza no hacemos: no pedirán asignar chica ni entran a nómina.</div><div class="chips">${P.map(p => `<label class="chip ${p.cleaning !== false ? 'on' : ''}"><input type="checkbox" class="chk" data-pp="${esc(p.code)}|cleaning" ${p.cleaning !== false ? 'checked' : ''}> ${esc(p.code)}</label>`).join('')}</div>` });
@@ -2097,6 +2116,10 @@ $('view').addEventListener('click', async e => {
   if (d.togcleaner) { const c = S.t.cleaners.find(x => x.key === d.togcleaner); return upd('cleaners', { key: c.key }, { active: c.active === false }); }
   if (d.togdepa) { const p = S.t.properties.find(x => x.code === d.togdepa), on = p.active === false; if (!on && !confirmTap(el)) return; return upd('properties', { code: p.code }, { active: on }, on ? p.code + ' activado' : p.code + ' desactivado'); }
   if (d.newdepa) return depaForm(null);
+  if (d.orddep) { S.ordDep = props().map(p => p.code); render(); return scrollTo(0, 0); }
+  if (d.ordmv) { ordDepMover(d.ordmv); return render(); }
+  if (d.ordcancel) { S.ordDep = null; return render(); }
+  if (d.ordsave) return ordDepGuardar();
   if (d.depaficha) return depaForm(d.depaficha);
   if (d.newcleaner) return openForm({ title: 'Agregar chica', values: { key: '', name: '' }, fields: () => [{ k: 'name', label: 'Nombre', type: 'text' }, { k: 'key', label: 'Clave (1 o 2 letras, sale en el calendario)', type: 'text' }],
     save: async v => { const key = (v.key || '').trim().toUpperCase(); if (!(v.name || '').trim()) return 'Falta el nombre.'; if (!/^[A-ZÑ]{1,2}$/.test(key)) return 'La clave debe ser 1 o 2 letras.'; if (S.t.cleaners.some(c => c.key === key)) return 'Esa clave ya existe.'; ins('cleaners', { key, name: v.name.trim(), phone: null, active: true }, 'Agregada'); } });
