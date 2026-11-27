@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '90';
+const APP_VER = '91';
 const TABLES = ['quotes', 'properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log', 'pl_mensual', 'pl_listings', 'pl_ideas', 'precio_decisiones'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -303,6 +303,40 @@ function allowed(tab) { const acc = ACCESS[S.me.role] || ACCESS.superadmin; retu
 const TITLES = { supuestos: 'Supuestos', perfil: 'Mi perfil', reservas: 'Reservas', cajones: 'Cajones Qalina', hoy: 'Hoy', calendario: 'Calendario', nomina: 'Nómina', menu: 'Menú', ...Object.fromEntries(MENU.map(m => [m[0], m[1]])), ocupacion: 'Ocupación' };
 const VIEWS = {};
 function go(tab) { if (tab !== S.tab) AN.evento('pestana_vista', { pestana: tab }); S.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (_) {} scrollTo(0, 0); S.calScroll = tab === 'calendario'; if (tab === 'servicios') { S.servScroll = true; const pm = mesAnt(); if (S.f.serv) { S.f.serv.y = pm.slice(0, 4); S.f.serv.m = pm.slice(5); } } render(); }
+// ---------- Orden en tablas (estándar de la app): toda tabla con encabezado se ordena al tocar una columna ----------
+// 1er toque: números de mayor a menor (texto de la A a la Z) · 2º: al revés · 3º: regresa al orden original.
+// No hay que hacer nada al crear una tabla nueva: basta con que su primer renglón sea el encabezado (th, o tr.h).
+// Opcionales: data-ord="clave" (recuerda el orden entre vistas), data-ord-ini="col:dir" (columna por la que ya viene ordenada),
+// data-v en una celda (valor exacto para ordenar), data-noord para dejarla fuera. Los renglones .tot se quedan al final.
+const ORD = {};
+const ordVal = c => { if (!c) return null; if (c.dataset.v !== undefined) { const v = c.dataset.v; return v === '' ? null : isNaN(v) ? v : +v; }
+  const t = c.textContent.replace(/[▲▼]/g, '').trim(); if (!t || t === '—' || t === '-') return null;
+  const m = t.replace(/\s/g, '').match(/^(\()?(-)?\$?(-)?([\d,]*\.?\d+)(k|M|%)?\)?$/); if (!m) return t;
+  let n = parseFloat(m[4].replace(/,/g, '')); if (m[5] === 'k') n *= 1e3; else if (m[5] === 'M') n *= 1e6; return m[1] || m[2] || m[3] ? -n : n; };
+const ordIni = tb => { const x = (tb.dataset.ordIni || '').split(':'); return x.length === 2 ? { i: +x[0], d: +x[1] } : null; };
+function ordTablas() {
+  document.querySelectorAll('#view table').forEach(tb => {
+    if (tb.matches('.sttab,.svt,.permt') || tb.dataset.noord !== undefined || tb.closest('.cal,.calwrap')) return;
+    const rows = [...tb.rows], hd = rows[0]; if (!hd || rows.length < 3) return;
+    const hc = [...hd.cells]; if (!(hd.classList.contains('h') || hc.every(c => c.tagName === 'TH')) || hc.some(c => c.colSpan > 1)) return;
+    const datos = rows.slice(1).filter(r => r.cells.length === hc.length && !r.classList.contains('tot') && ![...r.cells].some(c => c.colSpan > 1));
+    if (datos.length < 2 || datos.some(r => r.querySelector('input,select,textarea'))) return;
+    tb.dataset.ordk = tb.dataset.ord || S.tab + '|' + hc.map(c => c.textContent.trim()).join('|');
+    hc.forEach((c, i) => { c.classList.add('ordh'); c.dataset.ordc = i; const a = document.createElement('span'); a.className = 'orda'; c.appendChild(a); });
+    datos.forEach(r => { r.dataset.ordr = 1; }); ordAplica(tb);
+  });
+}
+function ordAplica(tb) {
+  const o = ORD[tb.dataset.ordk], ver = o || ordIni(tb), rows = [...tb.rows], cuerpo = rows.slice(1);
+  [...rows[0].cells].forEach((c, i) => { const a = c.querySelector('.orda'); if (a) a.textContent = ver && ver.i === i ? (ver.d < 0 ? ' ▼' : ' ▲') : ''; });
+  if (!o) return;
+  const datos = cuerpo.filter(r => r.dataset.ordr), tot = cuerpo.filter(r => r.classList.contains('tot'));
+  cuerpo.forEach(r => { if (!r.dataset.ordr && !r.classList.contains('tot')) r.style.display = 'none'; }); // encabezados de grupo: no aplican al ordenar
+  const V = new Map(datos.map(r => [r, ordVal(r.cells[o.i])]));
+  datos.sort((a, b) => { const x = V.get(a), y = V.get(b); if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
+    return o.d * (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'es', { numeric: true })); });
+  for (const r of [...datos, ...tot]) r.parentNode.appendChild(r);
+}
 // Congela los controles de arriba (botones, filtros, navegación) de cada pestaña
 function fijarCabecera() {
   const v = $('view'); if (!v || v.querySelector('.calhead')) return;
@@ -361,7 +395,7 @@ function render() {
   if (keepS && !S.servScroll) document.querySelectorAll('#view .scroll').forEach((c, i) => { if (keepS[i]) c.scrollLeft = keepS[i]; });
   if (keepX) document.querySelectorAll('#view .cal').forEach((c, i) => { if (keepX[i]) c.scrollLeft = keepX[i]; });
   S.lastTab = S.tab; S.lastMes = S.calMes;
-  fijarCabecera();
+  fijarCabecera(); ordTablas();
   { const rs = document.documentElement.style, bar = document.querySelector('.bar'), ch = document.querySelector('.calhead');
     if (bar) rs.setProperty('--barh', bar.offsetHeight + 'px'); if (ch) rs.setProperty('--calh', ch.offsetHeight + 'px'); }
   if (S.servScroll && S.tab === 'servicios') { S.servScroll = false; irAMesAnt(); requestAnimationFrame(irAMesAnt); }
@@ -807,15 +841,15 @@ function plCalor(M, P) {
   const todos = []; F.forEach(r => M.forEach(m => { const v = val(par(r, m)); if (v) todos.push(v); }));
   const p95 = L => { L.sort((a, b) => a - b); return L.length ? L[Math.min(L.length - 1, Math.floor(L.length * .95))] : 0; }, tope = met === 'pct' ? 50 : Math.max(p95(todos.filter(v => v > 0)), met === 'neta' ? p95(todos.filter(v => v < 0).map(v => -v)) : 0, 1);
   const fm = v => met === 'pct' ? Math.round(v) + '%' : plK(v).replace('$', ''), largo = v => met === 'pct' ? Math.round(v * 10) / 10 + '%' : money(Math.round(v));
-  const celda = (v, at) => { if (!v) return `<td class="c v0"${at}>${txt && v === 0 && met === 'pct' ? '0%' : ''}</td>`; const e = .12 + .88 * Math.min(1, Math.abs(v) / tope); return `<td class="c" style="background:${plMix(PLH.n, v < 0 ? PLH.c : PLH.v, e)};color:${e > .5 ? '#fff' : 'var(--ink)'}"${at}>${txt ? fm(v) : ''}</td>`; };
+  const celda = (v, at) => { at += ` data-v="${v == null ? '' : Math.round(v * 100) / 100}"`; if (!v) return `<td class="c v0"${at}>${txt && v === 0 && met === 'pct' ? '0%' : ''}</td>`; const e = .12 + .88 * Math.min(1, Math.abs(v) / tope); return `<td class="c" style="background:${plMix(PLH.n, v < 0 ? PLH.c : PLH.v, e)};color:${e > .5 ? '#fff' : 'var(--ink)'}"${at}>${txt ? fm(v) : ''}</td>`; };
   const seg = [['ing', 'Ingresos'], ['neta', 'Utilidad neta'], ['pct', 'Neta %']].map(([k, l]) => `<button class="sp ${met === k ? 'on' : ''}" data-plhm="${k}">${l}</button>`).join('');
   const esc0 = met === 'ing' ? `<span>$0</span><i style="background:linear-gradient(90deg,${plMix(PLH.n, PLH.v, .12)},${plMix(PLH.n, PLH.v, 1)})"></i><span>${plK(tope)}+</span>` : `<span>${met === 'pct' ? '-50%' : plK(-tope)}</span><i style="background:linear-gradient(90deg,${plMix(PLH.n, PLH.c, 1)},${plMix(PLH.n, PLH.c, .12)} 49%,${plMix(PLH.n, PLH.v, .12)} 51%,${plMix(PLH.n, PLH.v, 1)})"></i><span>${met === 'pct' ? '50%' : plK(tope)}+</span>`;
   let h = `<div class="seg" style="display:flex">${seg}</div><div class="row" style="margin-top:8px;flex-wrap:nowrap"><div class="plhmesc sp">${esc0}</div>${varias ? `<div class="seg plsw"><button class="${porTorre ? '' : 'on'}" data-plhmg="depa">Depa</button><button class="${porTorre ? 'on' : ''}" data-plhmg="torre">Torre</button></div>` : ''}</div>
-    <table><colgroup><col style="width:${txt ? 76 : 70}px">${M.map(() => '<col>').join('')}</colgroup><tr><th></th>${M.map(m => `<th><button data-plmes="${m.a}|${m.b}" class="${m.sel ? 'on' : ''}">${MESES[+m.ym.slice(5) - 1]}</button></th>`).join('')}</tr>`, torre = null;
+    <table data-ord="pl:hm:${porTorre ? 't' : 'd'}"><colgroup><col style="width:${txt ? 76 : 70}px">${M.map(() => '<col>').join('')}</colgroup><tr><th class="d">${porTorre ? 'Torre' : 'Depa'}</th>${M.map(m => `<th class="${m.sel ? 'on' : ''}">${MESES[+m.ym.slice(5) - 1]}</th>`).join('')}</tr>`, torre = null;
   for (const r of F) { if (!porTorre && varias && r.torre !== torre) { torre = r.torre; h += `<tr class="tor"><td colspan="${M.length + 1}">${esc(torre)}</td></tr>`; }
     h += `<tr${porTorre ? ' class="alto"' : ''}><td class="d"><button class="lnk" data-stgo="${r.tipo}|${esc(r.id)}">${esc(r.id)}</button></td>${M.map(m => { const v = val(par(r, m)); return celda(v, ` data-plcel="${r.tipo}|${esc(r.id)}|${m.a}|${m.b}" title="${esc(r.id)} · ${fmtMes(m.ym)}: ${v == null ? 'sin ingreso' : largo(v)}"`); }).join('')}</tr>`; }
   h += `<tr class="tot"><td class="d">Total</td>${M.map(m => { const v = met === 'ing' ? m.ing : met === 'neta' ? m.neta : m.ing > 0 ? m.neta / m.ing * 100 : null; return `<td>${v == null ? '—' : txt ? fm(v) : ''}</td>`; }).join('')}</tr></table>`;
-  return h + `<div class="m" style="font-size:12px;margin-top:6px">${met === 'pct' ? 'Neta % = utilidad neta entre ingresos.' : met === 'neta' ? 'Cobre = pérdida en el mes; verde = utilidad.' : 'Entre más oscuro, más ingreso.'} Toca una celda para ver ${porTorre ? 'esa torre' : 'ese depa'} en ese mes.</div>`;
+  return h + `<div class="m" style="font-size:12px;margin-top:6px">${met === 'pct' ? 'Neta % = utilidad neta entre ingresos.' : met === 'neta' ? 'Cobre = pérdida en el mes; verde = utilidad.' : 'Entre más oscuro, más ingreso.'} Toca una celda para ver ${porTorre ? 'esa torre' : 'ese depa'} en ese mes; toca un mes para ordenar.</div>`;
 }
 // Pendientes reales del P&L para la selección y el periodo: salen de los datos, no de una lista fija.
 function plPend(D) { const C = D.P.C, T = D.P.T, sinT = D.codes.filter(c => C.limpieza[c] == null), L = [];
@@ -851,7 +885,7 @@ VIEWS.pnl = () => {
   h += `<div class="card plg"><div class="row"><div class="sp"><b>Tendencia por mes</b> <span class="m">${MESES[+M[0].ym.slice(5) - 1]}${M[0].ym.slice(0, 4) !== M[M.length - 1].ym.slice(0, 4) ? ' ' + M[0].ym.slice(0, 4) : ''} – ${MESES[+M[M.length - 1].ym.slice(5) - 1]} ${M[M.length - 1].ym.slice(0, 4)}</span></div><div class="seg plsw"><button class="${modo === '$' ? 'on' : ''}" data-plmodo="$" aria-label="Ver en pesos">$</button><button class="${modo === '%' ? 'on' : ''}" data-plmodo="%" aria-label="Ver en porcentaje del ingreso">%</button></div></div>
     <div class="plleg"><span><i style="background:var(--cobre)"></i>Gastos</span><span><i style="background:var(--acc)"></i>Utilidad antes de impuestos</span><span><i class="ln"></i>Utilidad neta${modo === '%' ? ' %' : ''}</span></div>${plGraf(M, modo)}
     <div class="m" style="font-size:12px">La barra completa es el ingreso, en pesos.${modo === '%' ? ' La línea es la utilidad neta entre el ingreso.' : ''} Toca un mes para ver solo ese mes.${hoyM ? ' ' + MESES_L[+hoyM.ym.slice(5) - 1] + ' va al día de hoy.' : ''}</div>
-    <details class="plgt"><summary>Ver en tabla</summary><div style="overflow-x:auto"><table class="pltab"><tr class="h"><td>Mes</td><td class="r">Ingresos</td><td class="r">Gastos</td><td class="r">Neta</td><td class="r">Neta %</td></tr>${M.map(m => `<tr><td><button class="lnk" data-plmes="${m.a}|${m.b}">${MESES[+m.ym.slice(5) - 1]} ${m.ym.slice(2, 4)}${m.hoy ? '*' : ''}</button></td><td class="r">${money(Math.round(m.ing))}</td><td class="r">${money(Math.round(m.egr))}</td><td class="r"><b>${money(Math.round(m.neta))}</b></td><td class="r">${pcM(m)}</td></tr>`).join('')}</table></div>${hoyM ? '<div class="m" style="font-size:12px;margin-top:4px">* al día de hoy</div>' : ''}</details></div>`;
+    <details class="plgt"><summary>Ver en tabla</summary><div style="overflow-x:auto"><table class="pltab" data-ord="pl:meses"><tr class="h"><td>Mes</td><td class="r">Ingresos</td><td class="r">Gastos</td><td class="r">Neta</td><td class="r">Neta %</td></tr>${M.map(m => `<tr><td data-v="${m.ym}"><button class="lnk" data-plmes="${m.a}|${m.b}">${MESES[+m.ym.slice(5) - 1]} ${m.ym.slice(2, 4)}${m.hoy ? '*' : ''}</button></td><td class="r">${money(Math.round(m.ing))}</td><td class="r">${money(Math.round(m.egr))}</td><td class="r"><b>${money(Math.round(m.neta))}</b></td><td class="r">${pcM(m)}</td></tr>`).join('')}</table></div>${hoyM ? '<div class="m" style="font-size:12px;margin-top:4px">* al día de hoy</div>' : ''}</details></div>`;
   if (M.sinRes.length) h += `<div class="err" style="margin-top:8px">Ojo: en ${plMeses(M.sinRes)} la app tiene gastos pero ninguna reserva, así que la utilidad de este periodo sale menor a la real. La gráfica arranca en el primer mes con reservas.</div>`;
   h += `<div class="row" style="margin:12px 2px 8px;gap:8px"><b class="sp">${per}</b>${S.plPrev ? `<button class="chip" data-plback="1">← ${plDia(S.plPrev[0])} – ${plDia(S.plPrev[1])}</button>` : ''}</div>`;
   // Tarjetas: siguen al periodo (o al mes tocado en la gráfica), comparan contra el periodo anterior y cada una lleva a su detalle.
@@ -860,9 +894,9 @@ VIEWS.pnl = () => {
   h += `<div class="kpis" style="grid-template-columns:repeat(2,1fr)">` + k('', money(Math.round(T.ing)), 'Ingresos', dl(T.ing, U.ing), 'pl:res') + k('', money(Math.round(T.egr)), 'Gastos', dl(T.egr, U.egr, false), 'pl:gas') + k(T.antes >= 0 ? 'ok' : 'mal', money(Math.round(T.antes)), 'Utilidad antes de impuestos', plPct(T.antes, T.ing) + '% de margen', '#plER') + k(T.neta >= 0 ? 'ok' : 'mal', money(Math.round(T.neta)), 'Utilidad neta', (T.ing > 0 ? plPct(T.neta, T.ing) + '% del ingreso' : '') + (dl(T.neta, U.neta) ? ' · ' + dl(T.neta, U.neta).replace(' vs anterior', '') : ''), '#plER')
     + k('', T.ocup + '%', 'Ocupación', T.noches + ' de ' + T.disp + ' noches', porDepa) + k('', T.tarifa == null ? '—' : money(Math.round(T.tarifa)), 'Tarifa promedio por noche', T.tarifa == null || U.tarifa == null ? '' : dl(T.tarifa, U.tarifa), porDepa) + k('', T.revpar == null ? '—' : money(Math.round(T.revpar)), 'RevPAR', 'ingreso por noche disponible', porDepa) + k('', (Math.round(T.estancia * 10) / 10) + ' noches', 'Estancia promedio', P.RES.length + ' reservas', 'pl:res') + '</div>';
   h += `<div class="row" style="margin:6px 0 2px;gap:6px"><button class="pri sp" data-plpdf="1">PDF con comprobantes</button>${S.plPdf ? `<button data-pldl="1">Descargar</button><button data-plshare="1">Enviar</button>` : ''}</div>${S.plPdf ? `<div class="m">Listo: ${esc(S.plPdf.name)}. «Enviar» abre correo, WhatsApp o lo que elijas con el PDF adjunto.</div>` : ''}`;
-  h += `<h2 id="plER">Estado de resultados · ${esc(stTitulo())}</h2><div class="card"><table class="pltab">${plRenglones(P).map(([l, m, tp]) => tp === 'h' ? `<tr class="h"><td colspan="3">${l}</td></tr>` : `<tr class="${tp}"><td>${esc(l)}</td><td class="r">${m < 0 ? '(' + money(Math.round(-m)) + ')' : money(Math.round(m))}</td><td class="r m">${T.ing ? plPct(Math.abs(m), T.ing) + '%' : ''}</td></tr>`).join('')}</table><div class="m" style="margin-top:6px">La tercera columna es el porcentaje sobre el ingreso total. Los gastos van entre paréntesis.</div></div>`;
+  h += `<h2 id="plER">Estado de resultados · ${esc(stTitulo())}</h2><div class="card"><table class="pltab" data-noord>${plRenglones(P).map(([l, m, tp]) => tp === 'h' ? `<tr class="h"><td colspan="3">${l}</td></tr>` : `<tr class="${tp}"><td>${esc(l)}</td><td class="r">${m < 0 ? '(' + money(Math.round(-m)) + ')' : money(Math.round(m))}</td><td class="r m">${T.ing ? plPct(Math.abs(m), T.ing) + '%' : ''}</td></tr>`).join('')}</table><div class="m" style="margin-top:6px">La tercera columna es el porcentaje sobre el ingreso total. Los gastos van entre paréntesis.</div></div>`;
   h += `<h2>Lectura del periodo</h2><div class="card">${plLectura(D).map(x => `<p style="margin:0 0 8px;line-height:1.45">${esc(x)}</p>`).join('')}</div>`;
-  const filaDep = () => `<div style="overflow-x:auto"><table class="pltab"><tr class="h"><td>Depa</td><td class="r">Ingreso</td><td class="r">Gasto</td><td class="r">Neta</td><td class="r">Neta %</td><td class="r">Ocup.</td></tr>${P.deps.slice().sort((a, b) => b.neta - a.neta).map(x => `<tr><td><button class="lnk" data-stgo="depa|${esc(x.code)}">${esc(x.code)}</button></td><td class="r">${money(Math.round(x.ing))}</td><td class="r">${money(Math.round(x.egr))}</td><td class="r" style="color:${x.neta >= 0 ? '#1f6b4a' : '#a3301f'}"><b>${money(Math.round(x.neta))}</b></td><td class="r">${x.ing > 0 ? plPct(x.neta, x.ing) + '%' : '—'}</td><td class="r">${plPct(x.noches, x.disp)}%</td></tr>`).join('')}</table></div>`;
+  const filaDep = () => `<div style="overflow-x:auto"><table class="pltab" data-ord="pl:depas" data-ord-ini="3:-1"><tr class="h"><td>Depa</td><td class="r">Ingreso</td><td class="r">Gasto</td><td class="r">Neta</td><td class="r">Neta %</td><td class="r">Ocup.</td></tr>${P.deps.slice().sort((a, b) => b.neta - a.neta).map(x => `<tr><td><button class="lnk" data-stgo="depa|${esc(x.code)}">${esc(x.code)}</button></td><td class="r">${money(Math.round(x.ing))}</td><td class="r">${money(Math.round(x.egr))}</td><td class="r" style="color:${x.neta >= 0 ? '#1f6b4a' : '#a3301f'}"><b>${money(Math.round(x.neta))}</b></td><td class="r">${x.ing > 0 ? plPct(x.neta, x.ing) + '%' : '—'}</td><td class="r">${plPct(x.noches, x.disp)}%</td></tr>`).join('')}</table></div>`;
   const filaRes = () => P.RES.length ? `<div class="list">${P.RES.map(x => `<div class="it"><div class="sp"><div><b>${esc(x.r.property_code)}</b> · ${esc(pnom(x.r.guest))}</div><div class="m">${fmt(x.r.checkin)} a ${fmt(x.r.checkout)} · ${x.n} de ${x.tot} noches en el periodo</div></div><b>${x.parte ? money(Math.round(x.parte)) : '<span class="b cambio">SIN MONTO</span>'}</b></div>`).join('')}</div>` : '<div class="empty">Sin reservas en el periodo.</div>';
   const filaGas = () => P.GAS.length ? `<div class="list">${P.GAS.map(x => `<div class="it"><div class="sp"><div><b>${esc(x.property_code)}</b> · ${esc(catLabel(x))}</div><div class="m">${fmt(x.date)}${x.description ? ' · ' + esc(x.description) : ''}</div></div>${(x.photos || []).length ? '<span class="b alta">TICKET</span>' : '<span class="b n">SIN TICKET</span>'}<b style="min-width:76px;text-align:right">${money(Math.round(x.amount))}</b></div>`).join('')}</div>` : '<div class="empty">Sin gastos en el periodo.</div>';
   if (P.deps.length > 1) h += `<h2>Mapa de calor · ${new Set(P.deps.map(x => x.torre)).size > 1 && plPref('g') === 'torre' ? 'torre' : 'depa'} por mes</h2><div class="card plhm">${plCalor(M, P)}</div>`;
@@ -1927,6 +1961,15 @@ $('logo').addEventListener('click', () => S.me && go(homeTab()));
 $('avatar').addEventListener('click', () => go('perfil'));
 window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (t && t !== S.tab) { S.tab = t; render(); } });
 
+$('view').addEventListener('click', e => { // ordenar una tabla al tocar su encabezado
+  const c = e.target.closest('[data-ordc]'); if (!c || e.target.closest('button,a,input,select')) return;
+  const tb = c.closest('table'), k = tb.dataset.ordk, i = +c.dataset.ordc, ini = ordIni(tb);
+  const o = ORD[k];
+  if (o && o.i === i) { if (o.v === 2 || (ini && ini.i === i && ini.d === -o.d)) { delete ORD[k]; return render(); } o.d = -o.d; o.v = 2; } // 2º toque: al revés · 3º: orden original
+  else if (!o && ini && ini.i === i) ORD[k] = { i, d: -ini.d, v: 2 }; // ya venía ordenada por esta columna: se invierte
+  else { const vals = [...tb.rows].filter(r => r.dataset.ordr).map(r => ordVal(r.cells[i])).filter(v => v != null); ORD[k] = { i, d: vals.length && vals.filter(v => typeof v === 'number').length >= vals.length / 2 ? -1 : 1, v: 1 }; }
+  ordAplica(tb);
+});
 $('view').addEventListener('click', async e => {
   const el = e.target.closest('button,[data-res],[data-tx],[data-task],[data-buy],[data-extra],[data-servpay],[data-servacc],[data-servhide],[data-stgo],[data-plmes],[data-plcel]'); if (!el) return; const d = el.dataset;
   if (d.asig) return sheetAsignar(d.asig);
