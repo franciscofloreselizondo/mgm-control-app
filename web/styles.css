@@ -346,3 +346,13 @@ a.btn.sp{flex:1}
 .plgt{margin-top:6px}.plgt summary,.plsr summary{color:var(--acc);font-weight:600;font-size:13px;cursor:pointer}
 .plsu{padding:10px 0;border-bottom:1px solid var(--line)}.plsu:first-child{padding-top:2px}.plsu:last-child{border-bottom:none;padding-bottom:2px}
 .plsr{margin-top:6px}.plsr>b{margin-right:8px}.plsr details{display:inline-block;vertical-align:top}.plsr details .m{margin-top:4px}
+.plsw button{min-width:40px;min-height:34px;font-weight:700}
+/* P&L · mapa de calor depa × mes: 2px de aire entre celdas, texto en tinta (o blanco sobre celda oscura) */
+.plhm table{width:100%;border-collapse:separate;border-spacing:2px;table-layout:fixed;font-size:10.5px;margin-top:6px}
+.plhm th,.plhm td{padding:0;border:none;text-align:center;white-space:nowrap;overflow:hidden}
+.plhm th button{border:none;background:none;padding:6px 0;width:100%;font:inherit;font-weight:600;color:var(--mute);border-radius:4px}.plhm th button.on{color:var(--ink);font-weight:700}
+.plhm td{height:24px;border-radius:3px;font-variant-numeric:tabular-nums}.plhm td.c{cursor:pointer}.plhm td.v0{background:#f3f1ec}
+.plhm td.d{text-align:left;background:none;text-overflow:ellipsis}.plhm td.d button{padding:0;font-size:11px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plhm tr.tor td{height:auto;padding:7px 0 1px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mute)}
+.plhm tr.tot td{font-weight:700;font-size:11px;height:28px;border-top:1px solid var(--ink);border-radius:0}.plhm tr.tot td.d{font-size:11px}
+.plhmesc{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mute);margin-top:8px}.plhmesc i{flex:1;height:8px;border-radius:4px}
