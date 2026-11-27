@@ -32,7 +32,7 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
 };
 let DEFAULT_BAR = '';
-const APP_VER = '89';
+const APP_VER = '90';
 const TABLES = ['quotes', 'properties', 'cleaners', 'cleaning_rates', 'settings', 'app_users', 'reservations', 'blocks', 'days_off',
   'payroll_extras', 'payroll_payments', 'transactions', 'tasks', 'purchases', 'access_codes', 'cleanings', 'parking_loans', 'service_accounts', 'service_payments', 'sync_log', 'pl_mensual', 'pl_listings', 'pl_ideas', 'precio_decisiones'];
 const CAT_GASTO = ['Gasto por inversión', 'Limpieza', 'Lavandería', 'Productos de limpieza', 'Mantenimiento del edificio', 'Fumigación',
@@ -758,56 +758,69 @@ function plSerie(codes) {
   const hoy = today(), ymH = hoy.slice(0, 7), [f, t] = plRango(), ymT = t.slice(0, 7), fin = ymT > ymH || ymT < stMes(ymH, -11) ? ymT : ymH, M = [];
   if (PLM.rev !== REV) PLM = { rev: REV, m: new Map() };
   for (let i = 11; i >= 0; i--) { const ym = stMes(fin, -i), a = ym + '-01', sig = stMes(ym, 1) + '-01', z = ym === ymH && t <= hoy ? add(hoy, 1) : sig, b = add(z, -1), k = a + z + codes.join();
-    if (!PLM.m.has(k)) { const P = plCalc(a, z, codes), T = P.T; PLM.m.set(k, { ing: Math.max(0, T.ing), egr: Math.max(0, T.egr), neta: T.neta, vacio: !T.ingRes && !T.otros && !T.gastos && !T.nSal, deps: Object.fromEntries(P.deps.map(x => [x.code, [x.ing, x.neta]])) }); }
+    if (!PLM.m.has(k)) { const P = plCalc(a, z, codes), T = P.T; PLM.m.set(k, { ing: Math.max(0, T.ing), egr: Math.max(0, T.egr), neta: T.neta, nRes: P.RES.length, gas: T.gastos, vacio: !T.ingRes && !T.otros && !T.gastos && !T.nSal, deps: Object.fromEntries(P.deps.map(x => [x.code, [x.ing, x.neta]])) }); }
     M.push({ ym, a, b, ...PLM.m.get(k), hoy: z !== sig, sel: a <= t && b >= f }); }
-  while (M.length > 6 && M[0].vacio) M.shift(); // sin meses vacíos al inicio (sin reservas, salidas ni gastos reales; el cajón fijo no cuenta)
-  return M;
+  // Meses del periodo con gastos pero sin una sola reserva en la app: su utilidad no es real (falta el ingreso). Se avisa y no se grafican.
+  M.sinRes = M.filter(m => m.sel && !m.nRes && m.gas > 0).map(m => m.ym);
+  const hayRes = M.some(m => m.nRes); let quita = 0; while (M.length - quita > 3 && (hayRes ? !M[quita].nRes : M[quita].vacio)) quita++;
+  const V = M.slice(quita); V.sinRes = M.sinRes; return V;
 }
+// «ene–jun 2026» a partir de una lista de meses AAAA-MM
+const plMeses = L => !L.length ? '' : (L.length === 1 ? MESES[+L[0].slice(5) - 1] : MESES[+L[0].slice(5) - 1] + '–' + MESES[+L[L.length - 1].slice(5) - 1]) + ' ' + L[L.length - 1].slice(0, 4);
+// Preferencias de vista del P&L ($ o %, métrica y agrupación del mapa): se recuerdan en el teléfono.
+function plPref(k, v) { if (!S.plP) { try { S.plP = JSON.parse(localStorage.getItem('mgm_pl') || '{}') || {}; } catch (_) { S.plP = {}; } } if (v !== undefined) { S.plP[k] = v; try { localStorage.setItem('mgm_pl', JSON.stringify(S.plP)); } catch (_) {} } return S.plP[k]; }
 const plK = v => { const a = Math.abs(v), s = v < 0 ? '-$' : '$'; return a >= 1e6 ? s + Math.round(a / 1e5) / 10 + 'M' : a >= 1e4 ? s + Math.round(a / 1e3) + 'k' : a >= 1e3 ? s + Math.round(a / 100) / 10 + 'k' : s + Math.round(a); };
 const plDia = s => +s.slice(8) + ' ' + MESES[+s.slice(5, 7) - 1];
 // Regresa al periodo (y a la selección, si se entró por una celda del mapa de calor) que había antes de tocar un mes.
 function plVolver() { const p = S.plPrev; if (p) { S.plF = p[0]; S.plT = p[1]; if (p[2]) S.stSel = p[2]; } S.plPrev = null; }
-// Gráfica: una barra por mes cuyo alto es el ingreso, con los gastos abajo (cobre) y lo que queda arriba (verde); la línea es la utilidad neta.
-// Dos modos con un solo eje cada uno: '$' en pesos, o '%' donde cada barra es el 100% del ingreso del mes y la línea es el margen neto.
+// Gráfica: una barra por mes cuyo alto es el ingreso (en pesos), con los gastos abajo (cobre) y lo que queda arriba (verde).
+// La línea es la utilidad neta: en pesos sobre el mismo eje, o en % del ingreso (interruptor). En % las barras no cambian;
+// la línea usa su propia escala (0% en la base, 100% en el tope) y cada punto lleva su valor escrito, así no hace falta un segundo eje.
 function plGraf(M, modo) {
-  const pc = modo === '%', V = M.map(m => !pc ? { ing: m.ing, egr: m.egr, neta: m.neta } : m.ing > 0 ? { ing: 100, egr: Math.min(200, m.egr / m.ing * 100), neta: Math.max(-100, m.neta / m.ing * 100) } : { ing: 0, egr: 0, neta: null });
-  const W = 360, H = 180, L = 40, R = 8, T = 12, B = 24, n = M.length, mx = Math.max(pc ? 100 : 1, ...V.map(m => Math.max(m.ing, m.egr))), mn = Math.min(0, ...V.map(m => m.neta || 0));
-  const r0 = (mx - mn) / 3, p = Math.pow(10, Math.floor(Math.log10(r0))), q = r0 / p, paso = pc ? (mx - mn > 150 ? 50 : 25) : (q <= 1 ? 1 : q <= 2 ? 2 : q <= 2.5 ? 2.5 : q <= 5 ? 5 : 10) * p;
-  const top = Math.ceil(mx / paso) * paso, bot = Math.floor(mn / paso) * paso, y = v => T + (top - v) / (top - bot) * (H - T - B), band = (W - L - R) / n, bw = Math.min(24, band * .6), cx = i => L + band * (i + .5), y0 = y(0), r1 = v => Math.round(v * 10) / 10;
+  const pc = modo === '%', pct = M.map(m => m.ing > 0 ? m.neta / m.ing * 100 : null), W = 360, H = 180, L = 40, R = 8, T = pc ? 18 : 12, B = 24, n = M.length;
+  const mx = Math.max(1, ...M.map(m => Math.max(m.ing, m.egr))), mnP = Math.min(0, ...pct.map(v => v == null ? 0 : Math.max(-50, v))), mn0 = pc ? 0 : Math.min(0, ...M.map(m => m.neta));
+  const r0 = (mx - mn0) / 3, p = Math.pow(10, Math.floor(Math.log10(r0))), q = r0 / p, paso = (q <= 1 ? 1 : q <= 2 ? 2 : q <= 2.5 ? 2.5 : q <= 5 ? 5 : 10) * p;
+  const top = Math.ceil(mx / paso) * paso, bot = pc ? top * mnP / 100 : Math.floor(mn0 / paso) * paso, y = v => T + (top - v) / (top - bot) * (H - T - B), band = (W - L - R) / n, bw = Math.min(24, band * .6), cx = i => L + band * (i + .5), y0 = y(0), r1 = v => Math.round(v * 10) / 10;
+  const yl = i => pc ? (pct[i] == null ? null : y(top * Math.max(-50, Math.min(100, pct[i])) / 100)) : y(M[i].neta);
   const punta = (x, ya, yb, cls, op) => { if (yb - ya < .8) return ''; const r = Math.min(4, yb - ya, bw / 2); return `<path class="${cls}"${op ? ` opacity="${op}"` : ''} d="M${r1(x)},${r1(yb)}V${r1(ya + r)}Q${r1(x)},${r1(ya)} ${r1(x + r)},${r1(ya)}H${r1(x + bw - r)}Q${r1(x + bw)},${r1(ya)} ${r1(x + bw)},${r1(ya + r)}V${r1(yb)}Z"/>`; };
   const caja = (x, ya, yb, cls) => yb - ya < .8 ? '' : `<rect class="${cls}" x="${r1(x)}" y="${r1(ya)}" width="${r1(bw)}" height="${r1(yb - ya)}"/>`;
   let g = '';
-  for (let v = bot; v <= top + paso / 2; v += paso) { const z = Math.abs(v) < paso / 1e6; g += `<line class="${z ? 'eje' : 'reja'}" x1="${L}" x2="${W - R}" y1="${r1(y(v))}" y2="${r1(y(v))}"/><text class="tk" x="${L - 5}" y="${r1(y(v) + 3.5)}" text-anchor="end">${pc ? Math.round(z ? 0 : v) + '%' : plK(z ? 0 : v)}</text>`; }
-  V.forEach((m, i) => { const x = cx(i) - bw / 2, gi = Math.min(m.egr, m.ing), u = m.ing - gi, ex = m.egr - gi, yg = y(gi), yi = y(m.ing), ye = y(m.egr); let s = '';
+  for (let v = pc ? 0 : bot; v <= top + paso / 2; v += paso) { const z = Math.abs(v) < paso / 1e6; g += `<line class="${z ? 'eje' : 'reja'}" x1="${L}" x2="${W - R}" y1="${r1(y(v))}" y2="${r1(y(v))}"/><text class="tk" x="${L - 5}" y="${r1(y(v) + 3.5)}" text-anchor="end">${plK(z ? 0 : v)}</text>`; }
+  M.forEach((m, i) => { const x = cx(i) - bw / 2, gi = Math.min(m.egr, m.ing), u = m.ing - gi, ex = m.egr - gi, yg = y(gi), yi = y(m.ing), ye = y(m.egr); let s = '';
     if (gi > 0) s += u > 0 || ex > 0 ? caja(x, yg, y0, 'gas') : punta(x, yg, y0, 'gas');
     if (u > 0) s += punta(x, yi, gi > 0 ? yg - 2 : y0, 'uti');
     if (ex > 0) s += punta(x, ye, gi > 0 ? yi - 2 : y0, 'gas', .4);
-    g += `<g${M[i].sel ? '' : ' opacity=".3"'}>${s}</g><text class="mx${M[i].sel ? ' on' : ''}" x="${r1(cx(i))}" y="${H - 8}" text-anchor="middle">${MESES[+M[i].ym.slice(5) - 1]}</text>`; });
-  const tramos = [[]]; V.forEach((m, i) => { if (m.neta == null) { if (tramos[tramos.length - 1].length) tramos.push([]); } else tramos[tramos.length - 1].push(r1(cx(i)) + ',' + r1(y(m.neta))); });
+    g += `<g${m.sel ? '' : ' opacity=".3"'}>${s}</g><text class="mx${m.sel ? ' on' : ''}" x="${r1(cx(i))}" y="${H - 8}" text-anchor="middle">${MESES[+m.ym.slice(5) - 1]}</text>`; });
+  const tramos = [[]]; M.forEach((m, i) => { const yy = yl(i); if (yy == null) { if (tramos[tramos.length - 1].length) tramos.push([]); } else tramos[tramos.length - 1].push(r1(cx(i)) + ',' + r1(yy)); });
   for (const t of tramos) if (t.length > 1) g += `<polyline class="halo" points="${t.join(' ')}"/><polyline class="ln" points="${t.join(' ')}"/>`;
-  g += V.map((m, i) => m.neta == null ? '' : `<circle class="pt" cx="${r1(cx(i))}" cy="${r1(y(m.neta))}" r="4"/>`).join('');
+  g += M.map((m, i) => { const yy = yl(i); return yy == null ? '' : `<circle class="pt" cx="${r1(cx(i))}" cy="${r1(yy)}" r="4"/>` + (pc ? `<text class="pv${n > 8 ? ' ch' : ''}" x="${r1(cx(i))}" y="${r1(yy - 8 < T - 4 ? yy + 15 : yy - 8)}" text-anchor="middle">${Math.round(pct[i])}%</text>` : ''); }).join('');
   g += M.map((m, i) => `<rect class="hit" x="${r1(L + band * i)}" y="0" width="${r1(band)}" height="${H}" data-plmes="${m.a}|${m.b}"><title>${fmtMes(m.ym)}${m.hoy ? ' (a hoy)' : ''}: ingresos ${money(Math.round(m.ing))}, gastos ${money(Math.round(m.egr))}, utilidad neta ${money(Math.round(m.neta))}${m.ing > 0 ? ' (' + plPct(m.neta, m.ing) + '% del ingreso)' : ''}</title></rect>`).join('');
-  return `<svg class="plsvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tendencia por mes de ingresos, gastos y utilidad neta${pc ? ', como porcentaje del ingreso' : ''}">${g}</svg>`;
+  return `<svg class="plsvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tendencia por mes de ingresos, gastos y utilidad neta${pc ? ' en porcentaje del ingreso' : ''}">${g}</svg>`;
 }
 // Mapa de calor depa × mes. Ingresos usa una sola tinta (claro → oscuro); utilidad neta y neta % usan dos tintas con el cero en neutro (cobre = pérdida, verde = utilidad).
 const PLH = { n: [238, 236, 230], v: [47, 79, 67], c: [176, 112, 60] }, plMix = (a, b, t) => 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',') + ')';
 function plCalor(M, P) {
-  const met = S.plHm || 'ing', txt = M.length <= 8, val = v => !v ? null : met === 'ing' ? v[0] : met === 'neta' ? v[1] : v[0] > 0 ? v[1] / v[0] * 100 : null;
-  const todos = []; P.deps.forEach(x => M.forEach(m => { const v = val(m.deps[x.code]); if (v) todos.push(v); }));
+  const met = plPref('hm') || 'ing', txt = M.length <= 8, varias = new Set(P.deps.map(x => x.torre)).size > 1, porTorre = varias && plPref('g') === 'torre';
+  // Renglones: un depa, o una torre con la suma de sus depas. Cada renglón da [ingreso, utilidad neta] por mes.
+  const F = porTorre ? [...new Set(P.deps.map(x => x.torre))].map(tw => ({ tipo: 'torre', id: tw, cods: P.deps.filter(x => x.torre === tw).map(x => x.code) })) : P.deps.map(x => ({ tipo: 'depa', id: x.code, torre: x.torre, cods: [x.code] }));
+  const par = (r, m) => r.cods.reduce((a, c) => { const v = m.deps[c]; return v ? [a[0] + v[0], a[1] + v[1]] : a; }, [0, 0]), val = v => met === 'ing' ? v[0] : met === 'neta' ? v[1] : v[0] > 0 ? v[1] / v[0] * 100 : null;
+  const todos = []; F.forEach(r => M.forEach(m => { const v = val(par(r, m)); if (v) todos.push(v); }));
   const p95 = L => { L.sort((a, b) => a - b); return L.length ? L[Math.min(L.length - 1, Math.floor(L.length * .95))] : 0; }, tope = met === 'pct' ? 50 : Math.max(p95(todos.filter(v => v > 0)), met === 'neta' ? p95(todos.filter(v => v < 0).map(v => -v)) : 0, 1);
   const fm = v => met === 'pct' ? Math.round(v) + '%' : plK(v).replace('$', ''), largo = v => met === 'pct' ? Math.round(v * 10) / 10 + '%' : money(Math.round(v));
   const celda = (v, at) => { if (!v) return `<td class="c v0"${at}>${txt && v === 0 && met === 'pct' ? '0%' : ''}</td>`; const e = .12 + .88 * Math.min(1, Math.abs(v) / tope); return `<td class="c" style="background:${plMix(PLH.n, v < 0 ? PLH.c : PLH.v, e)};color:${e > .5 ? '#fff' : 'var(--ink)'}"${at}>${txt ? fm(v) : ''}</td>`; };
   const seg = [['ing', 'Ingresos'], ['neta', 'Utilidad neta'], ['pct', 'Neta %']].map(([k, l]) => `<button class="sp ${met === k ? 'on' : ''}" data-plhm="${k}">${l}</button>`).join('');
-  const esc0 = met === 'ing' ? `<span>$0</span><i style="background:linear-gradient(90deg,${plMix(PLH.n, PLH.v, .12)},${plMix(PLH.n, PLH.v, 1)})"></i><span>${plK(tope)} o más</span>` : `<span>${met === 'pct' ? '-50%' : plK(-tope)}</span><i style="background:linear-gradient(90deg,${plMix(PLH.n, PLH.c, 1)},${plMix(PLH.n, PLH.c, .12)} 49%,${plMix(PLH.n, PLH.v, .12)} 51%,${plMix(PLH.n, PLH.v, 1)})"></i><span>${met === 'pct' ? '50%' : plK(tope)} o más</span>`;
-  let h = `<div class="seg" style="display:flex">${seg}</div><div class="plhmesc">${esc0}</div><table><colgroup><col style="width:${txt ? 76 : 70}px">${M.map(() => '<col>').join('')}</colgroup><tr><th></th>${M.map(m => `<th><button data-plmes="${m.a}|${m.b}" class="${m.sel ? 'on' : ''}">${MESES[+m.ym.slice(5) - 1]}</button></th>`).join('')}</tr>`, torre = null, varias = new Set(P.deps.map(x => x.torre)).size > 1;
-  for (const x of P.deps) { if (varias && x.torre !== torre) { torre = x.torre; h += `<tr class="tor"><td colspan="${M.length + 1}">${esc(torre)}</td></tr>`; }
-    h += `<tr><td class="d"><button class="lnk" data-stgo="depa|${esc(x.code)}">${esc(x.code)}</button></td>${M.map(m => { const v = val(m.deps[x.code]); return celda(v, ` data-plcel="${esc(x.code)}|${m.a}|${m.b}" title="${esc(x.code)} · ${fmtMes(m.ym)}: ${v == null ? 'sin ingreso' : largo(v)}"`); }).join('')}</tr>`; }
+  const esc0 = met === 'ing' ? `<span>$0</span><i style="background:linear-gradient(90deg,${plMix(PLH.n, PLH.v, .12)},${plMix(PLH.n, PLH.v, 1)})"></i><span>${plK(tope)}+</span>` : `<span>${met === 'pct' ? '-50%' : plK(-tope)}</span><i style="background:linear-gradient(90deg,${plMix(PLH.n, PLH.c, 1)},${plMix(PLH.n, PLH.c, .12)} 49%,${plMix(PLH.n, PLH.v, .12)} 51%,${plMix(PLH.n, PLH.v, 1)})"></i><span>${met === 'pct' ? '50%' : plK(tope)}+</span>`;
+  let h = `<div class="seg" style="display:flex">${seg}</div><div class="row" style="margin-top:8px;flex-wrap:nowrap"><div class="plhmesc sp">${esc0}</div>${varias ? `<div class="seg plsw"><button class="${porTorre ? '' : 'on'}" data-plhmg="depa">Depa</button><button class="${porTorre ? 'on' : ''}" data-plhmg="torre">Torre</button></div>` : ''}</div>
+    <table><colgroup><col style="width:${txt ? 76 : 70}px">${M.map(() => '<col>').join('')}</colgroup><tr><th></th>${M.map(m => `<th><button data-plmes="${m.a}|${m.b}" class="${m.sel ? 'on' : ''}">${MESES[+m.ym.slice(5) - 1]}</button></th>`).join('')}</tr>`, torre = null;
+  for (const r of F) { if (!porTorre && varias && r.torre !== torre) { torre = r.torre; h += `<tr class="tor"><td colspan="${M.length + 1}">${esc(torre)}</td></tr>`; }
+    h += `<tr${porTorre ? ' class="alto"' : ''}><td class="d"><button class="lnk" data-stgo="${r.tipo}|${esc(r.id)}">${esc(r.id)}</button></td>${M.map(m => { const v = val(par(r, m)); return celda(v, ` data-plcel="${r.tipo}|${esc(r.id)}|${m.a}|${m.b}" title="${esc(r.id)} · ${fmtMes(m.ym)}: ${v == null ? 'sin ingreso' : largo(v)}"`); }).join('')}</tr>`; }
   h += `<tr class="tot"><td class="d">Total</td>${M.map(m => { const v = met === 'ing' ? m.ing : met === 'neta' ? m.neta : m.ing > 0 ? m.neta / m.ing * 100 : null; return `<td>${v == null ? '—' : txt ? fm(v) : ''}</td>`; }).join('')}</tr></table>`;
-  return h + `<div class="m" style="font-size:12px;margin-top:6px">${met === 'pct' ? 'Neta % = utilidad neta entre ingresos del depa en el mes.' : met === 'neta' ? 'Cobre = el depa perdió ese mes; verde = dejó utilidad.' : 'Entre más oscuro, más ingreso.'} Toca una celda para ver ese depa en ese mes.</div>`;
+  return h + `<div class="m" style="font-size:12px;margin-top:6px">${met === 'pct' ? 'Neta % = utilidad neta entre ingresos.' : met === 'neta' ? 'Cobre = pérdida en el mes; verde = utilidad.' : 'Entre más oscuro, más ingreso.'} Toca una celda para ver ${porTorre ? 'esa torre' : 'ese depa'} en ese mes.</div>`;
 }
 // Pendientes reales del P&L para la selección y el periodo: salen de los datos, no de una lista fija.
 function plPend(D) { const C = D.P.C, T = D.P.T, sinT = D.codes.filter(c => C.limpieza[c] == null), L = [];
   if (sinT.length) L.push([`Falta la tarifa de limpieza de ${sinT.join(', ')}`, 'Mientras tanto sus salidas cuentan en $0.', '']);
+  const sr = plSerie(D.codes).sinRes; if (sr.length) L.push([`${plMeses(sr)}: gastos sin reservas en la app`, 'La utilidad del periodo sale menor a la real: falta el ingreso de esos meses.', '']);
   if (T.sinMonto) L.push([`${T.sinMonto} ${T.sinMonto === 1 ? 'reserva sin monto' : 'reservas sin monto'}`, 'El ingreso mostrado es menor al real.', 'pl:res']);
   if (T.sinFoto) L.push([`${T.sinFoto} de ${D.P.GAS.length} gastos sin comprobante`, 'No salen en el anexo del PDF.', 'pl:gas']);
   return L; }
@@ -834,11 +847,12 @@ VIEWS.pnl = () => {
     <div class="row" style="margin-top:8px;gap:6px"><input type="date" data-plf="1" value="${f}" class="sp" aria-label="Desde"><span class="m">a</span><input type="date" data-plt="1" value="${t}" class="sp" aria-label="Hasta"></div>
     <div class="row" style="margin-top:8px;gap:6px">${rap.map(([l, a, b]) => `<button class="chip ${f === a && t === b ? 'pri' : ''}" data-plr="${a}|${b}">${l}</button>`).join('')}</div></div>`;
   const M = plSerie(D.codes), uno = M.find(m => m.a === f && m.b === t), hoyM = M.find(m => m.hoy), per = uno ? fmtMes(uno.ym) + (uno.hoy ? ' · a hoy' : '') : plDia(f) + ' – ' + plDia(t) + ' ' + t.slice(0, 4);
-  const modo = S.plModo === '%' ? '%' : '$', pcM = m => m.ing > 0 ? plPct(m.neta, m.ing) + '%' : '—';
+  const modo = plPref('modo') === '%' ? '%' : '$', pcM = m => m.ing > 0 ? plPct(m.neta, m.ing) + '%' : '—';
   h += `<div class="card plg"><div class="row"><div class="sp"><b>Tendencia por mes</b> <span class="m">${MESES[+M[0].ym.slice(5) - 1]}${M[0].ym.slice(0, 4) !== M[M.length - 1].ym.slice(0, 4) ? ' ' + M[0].ym.slice(0, 4) : ''} – ${MESES[+M[M.length - 1].ym.slice(5) - 1]} ${M[M.length - 1].ym.slice(0, 4)}</span></div><div class="seg plsw"><button class="${modo === '$' ? 'on' : ''}" data-plmodo="$" aria-label="Ver en pesos">$</button><button class="${modo === '%' ? 'on' : ''}" data-plmodo="%" aria-label="Ver en porcentaje del ingreso">%</button></div></div>
     <div class="plleg"><span><i style="background:var(--cobre)"></i>Gastos</span><span><i style="background:var(--acc)"></i>Utilidad antes de impuestos</span><span><i class="ln"></i>Utilidad neta${modo === '%' ? ' %' : ''}</span></div>${plGraf(M, modo)}
-    <div class="m" style="font-size:12px">${modo === '%' ? 'Cada barra es el 100% del ingreso del mes; la línea es la utilidad neta entre el ingreso.' : 'La barra completa es el ingreso.'} Toca un mes para ver solo ese mes.${hoyM ? ' ' + MESES_L[+hoyM.ym.slice(5) - 1] + ' va al día de hoy.' : ''}</div>
+    <div class="m" style="font-size:12px">La barra completa es el ingreso, en pesos.${modo === '%' ? ' La línea es la utilidad neta entre el ingreso.' : ''} Toca un mes para ver solo ese mes.${hoyM ? ' ' + MESES_L[+hoyM.ym.slice(5) - 1] + ' va al día de hoy.' : ''}</div>
     <details class="plgt"><summary>Ver en tabla</summary><div style="overflow-x:auto"><table class="pltab"><tr class="h"><td>Mes</td><td class="r">Ingresos</td><td class="r">Gastos</td><td class="r">Neta</td><td class="r">Neta %</td></tr>${M.map(m => `<tr><td><button class="lnk" data-plmes="${m.a}|${m.b}">${MESES[+m.ym.slice(5) - 1]} ${m.ym.slice(2, 4)}${m.hoy ? '*' : ''}</button></td><td class="r">${money(Math.round(m.ing))}</td><td class="r">${money(Math.round(m.egr))}</td><td class="r"><b>${money(Math.round(m.neta))}</b></td><td class="r">${pcM(m)}</td></tr>`).join('')}</table></div>${hoyM ? '<div class="m" style="font-size:12px;margin-top:4px">* al día de hoy</div>' : ''}</details></div>`;
+  if (M.sinRes.length) h += `<div class="err" style="margin-top:8px">Ojo: en ${plMeses(M.sinRes)} la app tiene gastos pero ninguna reserva, así que la utilidad de este periodo sale menor a la real. La gráfica arranca en el primer mes con reservas.</div>`;
   h += `<div class="row" style="margin:12px 2px 8px;gap:8px"><b class="sp">${per}</b>${S.plPrev ? `<button class="chip" data-plback="1">← ${plDia(S.plPrev[0])} – ${plDia(S.plPrev[1])}</button>` : ''}</div>`;
   // Tarjetas: siguen al periodo (o al mes tocado en la gráfica), comparan contra el periodo anterior y cada una lleva a su detalle.
   const dl = (a, b, sube = true) => { if (!b) return ''; const p = Math.round((a - b) / Math.abs(b) * 100); if (Math.abs(p) > 300) return ''; return `<span class="${!p ? '' : (p > 0) === sube ? 'st-ok' : 'st-mal'}">${p >= 0 ? '▲' : '▼'} ${Math.abs(p)}%</span> vs anterior`; };
@@ -851,7 +865,7 @@ VIEWS.pnl = () => {
   const filaDep = () => `<div style="overflow-x:auto"><table class="pltab"><tr class="h"><td>Depa</td><td class="r">Ingreso</td><td class="r">Gasto</td><td class="r">Neta</td><td class="r">Neta %</td><td class="r">Ocup.</td></tr>${P.deps.slice().sort((a, b) => b.neta - a.neta).map(x => `<tr><td><button class="lnk" data-stgo="depa|${esc(x.code)}">${esc(x.code)}</button></td><td class="r">${money(Math.round(x.ing))}</td><td class="r">${money(Math.round(x.egr))}</td><td class="r" style="color:${x.neta >= 0 ? '#1f6b4a' : '#a3301f'}"><b>${money(Math.round(x.neta))}</b></td><td class="r">${x.ing > 0 ? plPct(x.neta, x.ing) + '%' : '—'}</td><td class="r">${plPct(x.noches, x.disp)}%</td></tr>`).join('')}</table></div>`;
   const filaRes = () => P.RES.length ? `<div class="list">${P.RES.map(x => `<div class="it"><div class="sp"><div><b>${esc(x.r.property_code)}</b> · ${esc(pnom(x.r.guest))}</div><div class="m">${fmt(x.r.checkin)} a ${fmt(x.r.checkout)} · ${x.n} de ${x.tot} noches en el periodo</div></div><b>${x.parte ? money(Math.round(x.parte)) : '<span class="b cambio">SIN MONTO</span>'}</b></div>`).join('')}</div>` : '<div class="empty">Sin reservas en el periodo.</div>';
   const filaGas = () => P.GAS.length ? `<div class="list">${P.GAS.map(x => `<div class="it"><div class="sp"><div><b>${esc(x.property_code)}</b> · ${esc(catLabel(x))}</div><div class="m">${fmt(x.date)}${x.description ? ' · ' + esc(x.description) : ''}</div></div>${(x.photos || []).length ? '<span class="b alta">TICKET</span>' : '<span class="b n">SIN TICKET</span>'}<b style="min-width:76px;text-align:right">${money(Math.round(x.amount))}</b></div>`).join('')}</div>` : '<div class="empty">Sin gastos en el periodo.</div>';
-  if (P.deps.length > 1) h += `<h2>Mapa de calor · depa por mes</h2><div class="card plhm">${plCalor(M, P)}</div>`;
+  if (P.deps.length > 1) h += `<h2>Mapa de calor · ${new Set(P.deps.map(x => x.torre)).size > 1 && plPref('g') === 'torre' ? 'torre' : 'depa'} por mes</h2><div class="card plhm">${plCalor(M, P)}</div>`;
   h += `<h2>Detalle</h2><div class="card aclist">${P.deps.length > 1 ? acRow('pl:depas', { tit: 'Por depa', sub: 'Toca un depa para ver solo el suyo', pills: acPill(P.deps.length + ' DEPAS', ''), body: filaDep }) : ''}${acRow('pl:res', { tit: 'Reservas del periodo', sub: 'Ingreso repartido por noches dentro del periodo', pills: T.sinMonto ? acPill(T.sinMonto + ' SIN MONTO', 'med') : acPill(P.RES.length + ' RESERVAS', ''), body: filaRes })}${acRow('pl:gas', { tit: 'Gastos y comprobantes', sub: 'Los tickets van completos en el anexo del PDF', pills: T.sinFoto ? acPill(T.sinFoto + ' SIN TICKET', 'med') : acPill(P.GAS.length + ' GASTOS', ''), body: filaGas })}</div>`;
   return h + `<div class="m" style="margin-top:10px">Ingreso de reservas = neto depositado por Airbnb (ya sin su comisión ni retenciones), repartido por noches. No se incluyen la nómina de limpieza ni la lavandería reales: al dueño se le cobra la tarifa acordada por salida.</div>`;
 };
@@ -1963,9 +1977,10 @@ $('view').addEventListener('click', async e => {
   if (d.pltab) { S.plTab = d.pltab; return render(); }
   if (d.plmes) { const [a, b] = d.plmes.split('|'), [f, t] = plRango(); if (f === a && t === b) plVolver(); else { if (!S.plPrev) S.plPrev = [f, t]; S.plF = a; S.plT = b; } S.plPdf = null; return render(); }
   if (d.plback) { plVolver(); S.plPdf = null; return render(); }
-  if (d.plmodo) { S.plModo = d.plmodo; return render(); }
-  if (d.plhm) { S.plHm = d.plhm; return render(); }
-  if (d.plcel) { const [c, a, b] = d.plcel.split('|'); if (!S.plPrev) S.plPrev = [...plRango(), stSel()]; S.stSel = { tipo: 'depa', val: c }; S.plF = a; S.plT = b; S.plPdf = null; S.stPdf = null; render(); return scrollTo(0, 0); }
+  if (d.plmodo) { plPref('modo', d.plmodo); return render(); }
+  if (d.plhm) { plPref('hm', d.plhm); return render(); }
+  if (d.plhmg) { plPref('g', d.plhmg); return render(); }
+  if (d.plcel) { const [tp, c, a, b] = d.plcel.split('|'); if (!S.plPrev) S.plPrev = [...plRango(), stSel()]; S.stSel = { tipo: tp, val: c }; S.plF = a; S.plT = b; S.plPdf = null; S.stPdf = null; render(); return scrollTo(0, 0); }
   if (d.plir) { const x = document.getElementById(d.plir); if (x) scrollTo({ top: x.getBoundingClientRect().top + scrollY - [...document.querySelectorAll('.bar,.vhead')].reduce((n, e) => n + e.offsetHeight, 0) - 8, behavior: 'smooth' }); return; }
   if (d.plpend) { S.plTab = 'pl'; acTog(d.plpend, true); render(); document.getElementById('ac-' + d.plpend)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
   if (d.plr) { [S.plF, S.plT] = d.plr.split('|'); S.plPdf = null; S.plPrev = null; return render(); }

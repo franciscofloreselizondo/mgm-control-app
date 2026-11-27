@@ -342,6 +342,7 @@ a.btn.sp{flex:1}
 .plsvg .halo{fill:none;stroke:var(--card);stroke-width:6;stroke-linejoin:round;stroke-linecap:round}
 .plsvg .ln{fill:none;stroke:var(--ink);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
 .plsvg .pt{fill:var(--ink);stroke:var(--card);stroke-width:2}
+.plsvg .pv{font-size:10.5px;font-weight:700;fill:var(--ink);paint-order:stroke;stroke:var(--card);stroke-width:3px;stroke-linejoin:round}.plsvg .pv.ch{font-size:9px}
 .plsvg .hit{fill:transparent;cursor:pointer}
 .plgt{margin-top:6px}.plgt summary,.plsr summary{color:var(--acc);font-weight:600;font-size:13px;cursor:pointer}
 .plsu{padding:10px 0;border-bottom:1px solid var(--line)}.plsu:first-child{padding-top:2px}.plsu:last-child{border-bottom:none;padding-bottom:2px}
@@ -354,5 +355,6 @@ a.btn.sp{flex:1}
 .plhm td{height:24px;border-radius:3px;font-variant-numeric:tabular-nums}.plhm td.c{cursor:pointer}.plhm td.v0{background:#f3f1ec}
 .plhm td.d{text-align:left;background:none;text-overflow:ellipsis}.plhm td.d button{padding:0;font-size:11px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .plhm tr.tor td{height:auto;padding:7px 0 1px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mute)}
+.plhm tr.alto td{height:32px}.plhm tr.alto td.d button{font-size:12px}
 .plhm tr.tot td{font-weight:700;font-size:11px;height:28px;border-top:1px solid var(--ink);border-radius:0}.plhm tr.tot td.d{font-size:11px}
 .plhmesc{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mute);margin-top:8px}.plhmesc i{flex:1;height:8px;border-radius:4px}

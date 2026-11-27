@@ -1,5 +1,5 @@
 // Service worker: notificaciones push + caché básico del "cascarón" de la app.
-const CACHE = 'mgm-v89';
+const CACHE = 'mgm-v90';
 const SHELL = ['./', 'index.html', 'vendor/supabase-2.119.0.js', 'manifest.webmanifest', 'icons/icon-192.png', 'img/mark-green.png', 'img/logo-white.png', 'img/skyline.svg'];
 // Instalación: baja el cascarón saltando la caché del CDN de GitHub (?sw=versión), para no guardar una página vieja justo después de publicar.
 self.addEventListener('install', e => {
